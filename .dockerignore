@@ -1,0 +1,10 @@
+.git
+.gitignore
+.eca
+*.md
+LICENSE
+icon.png
+app/build
+build
+.gradle
+*.apk

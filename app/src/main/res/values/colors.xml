@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="athena_primary">#6366F1</color>
+    <color name="athena_background">#0F172A</color>
+    <color name="athena_surface">#1E293B</color>
+    <color name="athena_on_primary">#FFFFFF</color>
+    <color name="athena_on_background">#F8FAFC</color>
+</resources>
