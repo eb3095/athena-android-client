@@ -1,9 +1,11 @@
 package com.athena.client.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.ToneGenerator
 import android.media.AudioManager
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -45,13 +47,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.athena.client.audio.AudioPlayer
 import com.athena.client.speech.SpeechRecognizerManager
@@ -64,6 +71,8 @@ import com.athena.client.ui.components.ThinkingIndicator
 import com.athena.client.ui.components.VoiceSelector
 import com.athena.client.viewmodel.MainViewModel
 import com.athena.client.viewmodel.ResponseType
+import kotlinx.coroutines.launch
+import java.io.File
 
 private enum class ListenMode {
     PROMPT,
@@ -81,11 +90,58 @@ fun MainScreen(
     val isConnected by viewModel.isConnected.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     
     // Keep screen on while loading, polling, or playing audio
     val showProgress = uiState.isLoading || uiState.isPolling
     LaunchedEffect(showProgress, uiState.playingResponseId) {
         view.keepScreenOn = showProgress || uiState.playingResponseId != null
+    }
+    
+    // Auto-scroll to bottom when app resumes
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && uiState.responses.isNotEmpty()) {
+                coroutineScope.launch {
+                    listState.animateScrollToItem(uiState.responses.size - 1)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    
+    // Share audio helper function
+    fun shareAudio(audioBase64: String, voice: String?) {
+        try {
+            val audioBytes = Base64.decode(audioBase64, Base64.DEFAULT)
+            val fileName = "athena_audio_${System.currentTimeMillis()}.mp3"
+            val cacheDir = File(context.cacheDir, "shared_audio")
+            cacheDir.mkdirs()
+            val audioFile = File(cacheDir, fileName)
+            audioFile.writeBytes(audioBytes)
+            
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                audioFile
+            )
+            
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "audio/mpeg"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "Athena Audio" + (voice?.let { " ($it)" } ?: ""))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share audio"))
+        } catch (e: Exception) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Failed to share audio: ${e.message}")
+            }
+        }
     }
     
     var hasPermission by remember {
@@ -229,6 +285,7 @@ fun MainScreen(
                         hasAudio = response.audioBase64 != null,
                         isPlaying = uiState.playingResponseId == response.id,
                         isTranscript = response.type == ResponseType.TRANSCRIPT,
+                        voice = response.voice,
                         onPlayClick = {
                             if (uiState.playingResponseId == response.id) {
                                 audioPlayer.stop()
@@ -248,6 +305,9 @@ fun MainScreen(
                                     )
                                 }
                             }
+                        },
+                        onShareClick = response.audioBase64?.let { audio ->
+                            { shareAudio(audio, response.voice) }
                         }
                     )
                 }

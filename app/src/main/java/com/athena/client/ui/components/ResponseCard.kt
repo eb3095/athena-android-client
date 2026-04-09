@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,7 +34,9 @@ fun ResponseCard(
     isPlaying: Boolean,
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isTranscript: Boolean = false
+    isTranscript: Boolean = false,
+    voice: String? = null,
+    onShareClick: (() -> Unit)? = null
 ) {
     val containerColor = if (isTranscript) {
         MaterialTheme.colorScheme.secondaryContainer
@@ -99,21 +103,50 @@ fun ResponseCard(
                         text = MaterialTheme.typography.bodyLarge
                     )
                 )
+                
+                if (hasAudio && voice != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Voice: $voice",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = contentColor.copy(alpha = 0.5f)
+                    )
+                }
             }
             
             if (hasAudio) {
-                IconButton(
-                    onClick = onPlayClick,
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .size(48.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                        contentDescription = if (isPlaying) "Stop audio" else "Play audio",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
+                    IconButton(
+                        onClick = onPlayClick,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Stop audio" else "Play audio",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    
+                    if (onShareClick != null) {
+                        IconButton(
+                            onClick = onShareClick,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Share,
+                                contentDescription = "Share audio",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
