@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.lazy.LazyColumn
@@ -65,6 +67,7 @@ import com.athena.client.speech.SpeechRecognizerManager
 import com.athena.client.ui.components.MicButton
 import com.athena.client.ui.components.MimicButton
 import com.athena.client.ui.components.ResponseCard
+import com.athena.client.ui.components.SettingsDialog
 import com.athena.client.ui.components.SpeakButton
 import com.athena.client.ui.components.SpeakDialog
 import com.athena.client.ui.components.ThinkingIndicator
@@ -205,35 +208,91 @@ fun MainScreen(
     // Track previous response count for auto-play
     var previousResponseCount by remember { mutableStateOf(0) }
     
-    LaunchedEffect(uiState.responses.size) {
-        if (uiState.responses.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.responses.size - 1)
+    // Track streaming audio playback
+    var currentStreamingResponseId by remember { mutableStateOf<String?>(null) }
+    var nextSentenceToPlay by remember { mutableStateOf(0) }
+    var isPlayingStreamingSentence by remember { mutableStateOf(false) }
+    
+    // Handle streaming audio playback
+    LaunchedEffect(uiState.responses, isPlayingStreamingSentence) {
+        val streamingResponse = uiState.responses.find { it.isStreaming && !it.streamingComplete }
+            ?: uiState.responses.find { it.id == currentStreamingResponseId }
+        
+        if (streamingResponse != null) {
+            if (currentStreamingResponseId != streamingResponse.id) {
+                currentStreamingResponseId = streamingResponse.id
+                nextSentenceToPlay = 0
+            }
             
-            // Auto-play audio when a new response arrives
-            if (uiState.responses.size > previousResponseCount) {
-                val latestResponse = uiState.responses.last()
-                latestResponse.audioBase64?.let { audio ->
-                    audioPlayer.stop()
-                    viewModel.setPlayingResponse(latestResponse.id)
+            if (!isPlayingStreamingSentence) {
+                val completedSentences = streamingResponse.sentenceAudios.filter { it.status == "completed" && it.audio != null }
+                val nextSentence = completedSentences.find { it.index == nextSentenceToPlay }
+                
+                if (nextSentence != null && nextSentence.audio != null) {
+                    isPlayingStreamingSentence = true
+                    viewModel.setPlayingResponse(streamingResponse.id)
                     audioPlayer.play(
-                        base64Audio = audio,
+                        base64Audio = nextSentence.audio,
                         onCompletion = {
-                            viewModel.setPlayingResponse(null)
+                            nextSentenceToPlay++
+                            isPlayingStreamingSentence = false
+                            if (streamingResponse.streamingComplete && nextSentenceToPlay >= streamingResponse.sentenceAudios.size) {
+                                viewModel.setPlayingResponse(null)
+                                currentStreamingResponseId = null
+                            }
                         },
                         onError = {
+                            nextSentenceToPlay++
+                            isPlayingStreamingSentence = false
                             viewModel.setPlayingResponse(null)
                         }
                     )
                 }
             }
         }
+    }
+    
+    LaunchedEffect(uiState.responses.size) {
+        if (uiState.responses.isNotEmpty()) {
+            listState.animateScrollToItem(uiState.responses.size - 1)
+            
+            // Auto-play audio when a new non-streaming response arrives
+            if (uiState.responses.size > previousResponseCount) {
+                val latestResponse = uiState.responses.last()
+                if (!latestResponse.isStreaming) {
+                    latestResponse.audioBase64?.let { audio ->
+                        audioPlayer.stop()
+                        viewModel.setPlayingResponse(latestResponse.id)
+                        audioPlayer.play(
+                            base64Audio = audio,
+                            onCompletion = {
+                                viewModel.setPlayingResponse(null)
+                            },
+                            onError = {
+                                viewModel.setPlayingResponse(null)
+                            }
+                        )
+                    }
+                }
+            }
+        }
         previousResponseCount = uiState.responses.size
     }
+
+    var showSettingsDialog by remember { mutableStateOf(false) }
 
     if (showSpeakDialog) {
         SpeakDialog(
             onDismiss = { showSpeakDialog = false },
             onConfirm = { text -> viewModel.speakText(text) }
+        )
+    }
+
+    if (showSettingsDialog) {
+        SettingsDialog(
+            useStreamingMode = uiState.useStreamingMode,
+            onStreamingModeChanged = { viewModel.setStreamingMode(it) },
+            onDismiss = { showSettingsDialog = false }
         )
     }
 
@@ -245,6 +304,15 @@ fun MainScreen(
                         text = "Athena",
                         style = MaterialTheme.typography.titleLarge
                     )
+                },
+                actions = {
+                    IconButton(onClick = { showSettingsDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -280,9 +348,21 @@ fun MainScreen(
                     items = uiState.responses,
                     key = { it.id }
                 ) { response ->
+                    val hasAnyAudio = if (response.isStreaming) {
+                        response.sentenceAudios.any { it.audio != null }
+                    } else {
+                        response.audioBase64 != null
+                    }
+                    
+                    val showShareButton = if (response.isStreaming) {
+                        response.streamingComplete && response.combinedAudio != null
+                    } else {
+                        response.audioBase64 != null
+                    }
+                    
                     ResponseCard(
                         text = response.text,
-                        hasAudio = response.audioBase64 != null,
+                        hasAudio = hasAnyAudio,
                         isPlaying = uiState.playingResponseId == response.id,
                         isTranscript = response.type == ResponseType.TRANSCRIPT,
                         voice = response.voice,
@@ -290,9 +370,21 @@ fun MainScreen(
                             if (uiState.playingResponseId == response.id) {
                                 audioPlayer.stop()
                                 viewModel.setPlayingResponse(null)
+                                if (response.isStreaming) {
+                                    isPlayingStreamingSentence = false
+                                }
                             } else {
-                                response.audioBase64?.let { audio ->
+                                val audioToPlay = if (response.isStreaming && response.streamingComplete) {
+                                    response.combinedAudio
+                                } else {
+                                    response.audioBase64
+                                }
+                                audioToPlay?.let { audio ->
                                     audioPlayer.stop()
+                                    if (response.isStreaming) {
+                                        currentStreamingResponseId = null
+                                        isPlayingStreamingSentence = false
+                                    }
                                     viewModel.setPlayingResponse(response.id)
                                     audioPlayer.play(
                                         base64Audio = audio,
@@ -306,9 +398,10 @@ fun MainScreen(
                                 }
                             }
                         },
-                        onShareClick = response.audioBase64?.let { audio ->
-                            { shareAudio(audio, response.voice) }
-                        }
+                        onShareClick = if (showShareButton) {
+                            val audioForShare = response.combinedAudio ?: response.audioBase64
+                            audioForShare?.let { audio -> { shareAudio(audio, response.voice) } }
+                        } else null
                     )
                 }
                 

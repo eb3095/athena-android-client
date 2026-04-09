@@ -42,20 +42,27 @@ uninstall:
 	adb uninstall com.athena.client || true
 
 icons:
-	@echo "Generating app icons from logo.png..."
+	@echo "Generating app icons from image.png..."
 	@mkdir -p app/src/main/res/mipmap-mdpi
 	@mkdir -p app/src/main/res/mipmap-hdpi
 	@mkdir -p app/src/main/res/mipmap-xhdpi
 	@mkdir -p app/src/main/res/mipmap-xxhdpi
 	@mkdir -p app/src/main/res/mipmap-xxxhdpi
-	@sips -z 48 48 logo.png --out app/src/main/res/mipmap-mdpi/ic_launcher.png 2>/dev/null || \
-		convert logo.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
-	@sips -z 72 72 logo.png --out app/src/main/res/mipmap-hdpi/ic_launcher.png 2>/dev/null || \
-		convert logo.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
-	@sips -z 96 96 logo.png --out app/src/main/res/mipmap-xhdpi/ic_launcher.png 2>/dev/null || \
-		convert logo.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
-	@sips -z 144 144 logo.png --out app/src/main/res/mipmap-xxhdpi/ic_launcher.png 2>/dev/null || \
-		convert logo.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-	@sips -z 192 192 logo.png --out app/src/main/res/mipmap-xxxhdpi/ic_launcher.png 2>/dev/null || \
-		convert logo.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+	@# Legacy launcher icons (for older Android)
+	@sips -z 48 48 image.png --out app/src/main/res/mipmap-mdpi/ic_launcher.png 2>/dev/null || \
+		convert image.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
+	@sips -z 72 72 image.png --out app/src/main/res/mipmap-hdpi/ic_launcher.png 2>/dev/null || \
+		convert image.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
+	@sips -z 96 96 image.png --out app/src/main/res/mipmap-xhdpi/ic_launcher.png 2>/dev/null || \
+		convert image.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
+	@sips -z 144 144 image.png --out app/src/main/res/mipmap-xxhdpi/ic_launcher.png 2>/dev/null || \
+		convert image.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+	@sips -z 192 192 image.png --out app/src/main/res/mipmap-xxxhdpi/ic_launcher.png 2>/dev/null || \
+		convert image.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+	@# Adaptive icon foreground
+	@sips -z 108 108 image.png --out app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png 2>/dev/null
+	@sips -z 162 162 image.png --out app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png 2>/dev/null
+	@sips -z 216 216 image.png --out app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png 2>/dev/null
+	@sips -z 324 324 image.png --out app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png 2>/dev/null
+	@sips -z 432 432 image.png --out app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png 2>/dev/null
 	@echo "Icons generated successfully."

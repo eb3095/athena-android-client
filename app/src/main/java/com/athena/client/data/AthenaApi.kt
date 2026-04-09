@@ -5,6 +5,8 @@ import com.athena.client.data.models.JobSubmitResponse
 import com.athena.client.data.models.PromptRequest
 import com.athena.client.data.models.PromptResponse
 import com.athena.client.data.models.SpeakRequest
+import com.athena.client.data.models.StreamJobRequest
+import com.athena.client.data.models.StreamJobStatusResponse
 import com.athena.client.data.models.VoicesResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -29,6 +31,12 @@ interface AthenaApi {
 
     @GET("api/speak/job/{jobId}")
     suspend fun getSpeakJobStatus(@Path("jobId") jobId: String): JobStatusResponse
+
+    @POST("api/stream/job")
+    suspend fun submitStreamJob(@Body request: StreamJobRequest): JobSubmitResponse
+
+    @GET("api/stream/job/{jobId}")
+    suspend fun getStreamJobStatus(@Path("jobId") jobId: String): StreamJobStatusResponse
 
     @GET("health")
     suspend fun health(): Unit

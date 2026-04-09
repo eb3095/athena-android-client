@@ -5,4 +5,5 @@
     <color name="athena_surface">#1E293B</color>
     <color name="athena_on_primary">#FFFFFF</color>
     <color name="athena_on_background">#F8FAFC</color>
+    <color name="ic_launcher_background">#2d1f3d</color>
 </resources>

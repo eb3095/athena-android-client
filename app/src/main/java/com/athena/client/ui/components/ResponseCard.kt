@@ -75,7 +75,7 @@ fun ResponseCard(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Transcript" + (voice?.let { " • $it" } ?: ""),
+                            text = "Transcript",
                             style = MaterialTheme.typography.labelSmall,
                             color = contentColor.copy(alpha = 0.7f),
                             modifier = Modifier.padding(start = 4.dp)

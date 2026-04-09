@@ -95,11 +95,14 @@ object ApiClient {
     )
     val serverStatuses: StateFlow<List<ServerStatus>> = _serverStatuses.asStateFlow()
 
-    private val _isConnected = MutableStateFlow(false)
+    private val _isConnected = MutableStateFlow(true)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
     @Volatile
     private var currentHealthyUrl: String? = null
+    
+    @Volatile
+    private var hasCompletedFirstCheck = false
 
     private var healthCheckJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -132,7 +135,11 @@ object ApiClient {
         
         val firstHealthy = statuses.firstOrNull { it.isHealthy }?.url
         currentHealthyUrl = firstHealthy
-        _isConnected.value = firstHealthy != null
+        
+        if (hasCompletedFirstCheck || firstHealthy != null) {
+            _isConnected.value = firstHealthy != null
+        }
+        hasCompletedFirstCheck = true
         
         if (firstHealthy != null) {
             Log.d(TAG, "Active server: $firstHealthy")
