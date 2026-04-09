@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="Athena Logo" width="200">
+</p>
+
 # Athena Android Client
 
 A minimalistic Android voice assistant client for Athena. Speak to the app, and it sends your prompt to the Athena server, displays the markdown-formatted response, and plays back the audio.
