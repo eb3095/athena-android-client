@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.ksp)
 }
 
 val localProperties = Properties().apply {
@@ -87,6 +88,12 @@ dependencies {
     
     implementation(libs.markdown.renderer)
     implementation(libs.markdown.renderer.m3)
+    
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+    
+    implementation(libs.navigation.compose)
     
     debugImplementation(libs.androidx.ui.tooling)
 }

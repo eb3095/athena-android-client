@@ -1,5 +1,9 @@
 package com.athena.client.data
 
+import com.athena.client.data.models.ConversationJobRequest
+import com.athena.client.data.models.ConversationStreamJobRequest
+import com.athena.client.data.models.FormatTextRequest
+import com.athena.client.data.models.FormatTextResponse
 import com.athena.client.data.models.JobStatusResponse
 import com.athena.client.data.models.JobSubmitResponse
 import com.athena.client.data.models.PromptRequest
@@ -7,6 +11,8 @@ import com.athena.client.data.models.PromptResponse
 import com.athena.client.data.models.SpeakRequest
 import com.athena.client.data.models.StreamJobRequest
 import com.athena.client.data.models.StreamJobStatusResponse
+import com.athena.client.data.models.SummarizeRequest
+import com.athena.client.data.models.SummarizeResponse
 import com.athena.client.data.models.VoicesResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -37,6 +43,24 @@ interface AthenaApi {
 
     @GET("api/stream/job/{jobId}")
     suspend fun getStreamJobStatus(@Path("jobId") jobId: String): StreamJobStatusResponse
+
+    @POST("api/conversation/job")
+    suspend fun submitConversationJob(@Body request: ConversationJobRequest): JobSubmitResponse
+
+    @GET("api/conversation/job/{jobId}")
+    suspend fun getConversationJobStatus(@Path("jobId") jobId: String): JobStatusResponse
+
+    @POST("api/conversation/stream/job")
+    suspend fun submitConversationStreamJob(@Body request: ConversationStreamJobRequest): JobSubmitResponse
+
+    @GET("api/conversation/stream/job/{jobId}")
+    suspend fun getConversationStreamJobStatus(@Path("jobId") jobId: String): StreamJobStatusResponse
+
+    @POST("api/format/text")
+    suspend fun formatText(@Body request: FormatTextRequest): FormatTextResponse
+
+    @POST("api/summarize")
+    suspend fun summarize(@Body request: SummarizeRequest): SummarizeResponse
 
     @GET("health")
     suspend fun health(): Unit

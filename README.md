@@ -8,13 +8,15 @@ A minimalistic Android voice assistant client for Athena. Speak to the app, and 
 
 ## Features
 
+- **Conversations** - Multi-turn AI conversations with context persistence
+- **Transcripts** - Convert spoken or typed text to audio in selected voice
+- **Persistent Storage** - All conversations and transcripts saved locally (Room database)
 - **Voice Input** - Speak prompts via Android SpeechRecognizer
 - **Voice Selection** - Dropdown to select TTS voice (queries server for available voices)
 - **Streaming Mode** - Sentence-by-sentence audio playback for faster perceived response
-- **Three Input Modes**:
-  - **Mic Button** - Speak a prompt, get AI response with optional TTS
-  - **Speak Button** - Type text and have it spoken in selected voice
-  - **Mimic Button** - Speak text directly, STT converts it, then TTS speaks it back in selected voice
+- **AI Text Formatting** - Spoken prompts are cleaned up with proper punctuation
+- **Smart Titles** - AI-generated titles for conversations based on initial prompt
+- **Navigation Drawer** - Slide-out menu to manage and switch between conversations
 - **Markdown Rendering** - AI responses displayed with formatting
 - **Audio Playback** - Auto-plays TTS audio, with replay button
 - **Settings Menu** - Configure streaming mode and other preferences
@@ -95,15 +97,32 @@ make install
 - With streaming enabled, audio begins playing as soon as the first sentence is ready
 - Download/share button appears only after all sentences have completed
 
-### Workflow
+### Getting Started
 
-1. Select a voice (or "None" for text-only)
-2. **For AI conversation**: Tap the mic button, speak your question
-3. **For TTS only**: Type in the text field, tap the speak button
-4. **For voice mimicking**: Tap the mimic button, speak what you want repeated
-5. Wait for "Thinking..." to complete
-6. View markdown response and hear audio playback
-7. Tap replay button to hear audio again
+1. **Launch the app** - You'll see the home screen with two options
+2. **Start a Conversation** - Tap "New Conversation" to chat with the AI
+3. **Start a Transcript** - Tap "New Transcript" to convert text to speech
+
+### Conversations
+
+- Tap the mic button and speak to send a message
+- Your spoken text is automatically cleaned up (punctuation, grammar)
+- The AI responds with context from previous messages in the conversation
+- First message generates an AI title for the conversation
+- Select a voice to hear responses spoken aloud
+
+### Transcripts
+
+- Type text using the Speak button, or speak it using the Mimic button
+- Text is converted to audio in the selected voice
+- Great for hearing how text sounds in different voices
+
+### Navigation
+
+- **Home screen** - Only shown on fresh launch
+- **Swipe right** - Opens the navigation drawer from any screen
+- **Navigation drawer** - Create new conversations/transcripts, switch between existing ones
+- **Delete** - Tap X next to any item to delete, or "Delete All" at the bottom
 
 ## Build Commands
 
@@ -124,28 +143,40 @@ make install
 athena-android-client/
 ├── app/src/main/
 │   ├── java/com/athena/client/
-│   │   ├── AthenaApplication.kt     # Application class
+│   │   ├── AthenaApplication.kt     # Application class with DB init
 │   │   ├── MainActivity.kt          # Single activity
-│   │   ├── data/                    # API layer
+│   │   ├── data/                    # Data layer
 │   │   │   ├── ApiClient.kt         # Retrofit setup
 │   │   │   ├── AthenaApi.kt         # API interface
-│   │   │   └── models/              # Request/response models
+│   │   │   ├── models/              # Request/response models
+│   │   │   └── local/               # Room database
+│   │   │       ├── AppDatabase.kt
+│   │   │       ├── ConversationDao.kt
+│   │   │       ├── ConversationEntity.kt
+│   │   │       ├── ConversationRepository.kt
+│   │   │       └── MessageEntity.kt
 │   │   ├── audio/                   # Audio playback
-│   │   │   ├── AudioPlayer.kt       # WAV playback from base64
-│   │   │   └── ByteArrayMediaDataSource.kt
+│   │   │   └── AudioPlayer.kt
 │   │   ├── speech/                  # Voice recognition
 │   │   │   └── SpeechRecognizerManager.kt
 │   │   ├── ui/                      # Compose UI
-│   │   │   ├── MainScreen.kt        # Main screen composable
+│   │   │   ├── HomeScreen.kt        # Launch screen
+│   │   │   ├── ConversationScreen.kt # AI conversation
+│   │   │   ├── TranscriptScreen.kt  # TTS transcripts
+│   │   │   ├── navigation/          # Navigation
+│   │   │   │   ├── AthenaNavHost.kt
+│   │   │   │   └── NavRoutes.kt
 │   │   │   ├── components/          # UI components
-│   │   │   │   ├── MicButton.kt     # Voice prompt button
-│   │   │   │   ├── SpeakButton.kt   # TTS-only button
-│   │   │   │   ├── MimicButton.kt   # Voice mimic button
-│   │   │   │   ├── VoiceSelector.kt # Voice dropdown
-│   │   │   │   └── SettingsDialog.kt # Settings dialog
+│   │   │   │   ├── AppNavigationDrawer.kt
+│   │   │   │   ├── MicButton.kt
+│   │   │   │   ├── SpeakButton.kt
+│   │   │   │   ├── MimicButton.kt
+│   │   │   │   └── VoiceSelector.kt
 │   │   │   └── theme/               # App theme
 │   │   └── viewmodel/
-│   │       └── MainViewModel.kt     # State management
+│   │       ├── AppViewModel.kt      # Global state
+│   │       ├── ConversationViewModel.kt
+│   │       └── TranscriptViewModel.kt
 │   └── res/                         # Android resources
 ├── gradle/                          # Gradle wrapper
 ├── build.gradle.kts                 # Root build config
@@ -157,12 +188,14 @@ athena-android-client/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/prompt/job` | POST | Submit async prompt job |
-| `/api/prompt/job/{id}` | GET | Poll for prompt result |
+| `/api/conversation/job` | POST | Submit async conversation job with history |
+| `/api/conversation/job/{id}` | GET | Poll for conversation result |
+| `/api/conversation/stream/job` | POST | Submit streaming conversation job |
+| `/api/conversation/stream/job/{id}` | GET | Poll for streaming conversation result |
 | `/api/speak/job` | POST | Submit async TTS-only job |
 | `/api/speak/job/{id}` | GET | Poll for TTS result |
-| `/api/stream/job` | POST | Submit async streaming prompt job |
-| `/api/stream/job/{id}` | GET | Poll for streaming result (sentence-by-sentence) |
+| `/api/format/text` | POST | Clean up STT text (punctuation, grammar) |
+| `/api/summarize` | POST | Generate short title from text |
 | `/api/voices` | GET | List available voices |
 | `/health` | GET | Server health check |
 

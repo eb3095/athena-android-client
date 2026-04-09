@@ -44,3 +44,44 @@ data class StreamJobStatusResponse(
     val voice: String? = null,
     val error: String? = null
 )
+
+@Serializable
+data class ConversationMessage(
+    val role: String,
+    val content: String
+)
+
+@Serializable
+data class ConversationJobRequest(
+    val messages: List<ConversationMessage>,
+    val speaker: Boolean = false,
+    @SerialName("speaker_voice") val speakerVoice: String? = null
+)
+
+@Serializable
+data class ConversationStreamJobRequest(
+    val messages: List<ConversationMessage>,
+    @SerialName("speaker_voice") val speakerVoice: String? = null,
+    @SerialName("sentence_pause_ms") val sentencePauseMs: Int? = null
+)
+
+@Serializable
+data class FormatTextRequest(
+    val text: String
+)
+
+@Serializable
+data class FormatTextResponse(
+    @SerialName("formatted_text") val formattedText: String
+)
+
+@Serializable
+data class SummarizeRequest(
+    val text: String,
+    @SerialName("max_words") val maxWords: Int = 6
+)
+
+@Serializable
+data class SummarizeResponse(
+    val summary: String
+)
