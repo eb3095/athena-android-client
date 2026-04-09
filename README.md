@@ -10,12 +10,14 @@ A minimalistic Android voice assistant client for Athena. Speak to the app, and 
 
 - **Voice Input** - Speak prompts via Android SpeechRecognizer
 - **Voice Selection** - Dropdown to select TTS voice (queries server for available voices)
+- **Streaming Mode** - Sentence-by-sentence audio playback for faster perceived response
 - **Three Input Modes**:
   - **Mic Button** - Speak a prompt, get AI response with optional TTS
   - **Speak Button** - Type text and have it spoken in selected voice
   - **Mimic Button** - Speak text directly, STT converts it, then TTS speaks it back in selected voice
 - **Markdown Rendering** - AI responses displayed with formatting
 - **Audio Playback** - Auto-plays TTS audio, with replay button
+- **Settings Menu** - Configure streaming mode and other preferences
 - **Async Job Polling** - Uses job-based API for reliable long-running requests
 - **Multi-Server Support** - Continuous health monitoring with automatic failover
 - **Connection Status** - Visual indicator with automatic retry
@@ -86,6 +88,13 @@ make install
 - Select "None" for text-only responses (no audio)
 - Voice list refreshes each time the dropdown opens
 
+### Streaming Mode
+
+- Tap the settings icon (gear) in the top right to open settings
+- Enable "Streaming Mode" to receive and play audio sentence-by-sentence
+- With streaming enabled, audio begins playing as soon as the first sentence is ready
+- Download/share button appears only after all sentences have completed
+
 ### Workflow
 
 1. Select a voice (or "None" for text-only)
@@ -132,7 +141,8 @@ athena-android-client/
 │   │   │   │   ├── MicButton.kt     # Voice prompt button
 │   │   │   │   ├── SpeakButton.kt   # TTS-only button
 │   │   │   │   ├── MimicButton.kt   # Voice mimic button
-│   │   │   │   └── VoiceSelector.kt # Voice dropdown
+│   │   │   │   ├── VoiceSelector.kt # Voice dropdown
+│   │   │   │   └── SettingsDialog.kt # Settings dialog
 │   │   │   └── theme/               # App theme
 │   │   └── viewmodel/
 │   │       └── MainViewModel.kt     # State management
@@ -151,6 +161,8 @@ athena-android-client/
 | `/api/prompt/job/{id}` | GET | Poll for prompt result |
 | `/api/speak/job` | POST | Submit async TTS-only job |
 | `/api/speak/job/{id}` | GET | Poll for TTS result |
+| `/api/stream/job` | POST | Submit async streaming prompt job |
+| `/api/stream/job/{id}` | GET | Poll for streaming result (sentence-by-sentence) |
 | `/api/voices` | GET | List available voices |
 | `/health` | GET | Server health check |
 
