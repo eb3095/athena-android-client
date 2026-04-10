@@ -111,4 +111,17 @@ class ConversationRepository(
         }
         dao.deleteAllConversationsByType(type)
     }
+
+    suspend fun updateConversationPersonality(
+        conversationId: String,
+        personalityKey: String?,
+        customPersonality: String?
+    ) {
+        dao.updateConversationPersonality(
+            conversationId,
+            personalityKey,
+            customPersonality,
+            System.currentTimeMillis()
+        )
+    }
 }

@@ -6,6 +6,7 @@ import com.athena.client.data.models.FormatTextRequest
 import com.athena.client.data.models.FormatTextResponse
 import com.athena.client.data.models.JobStatusResponse
 import com.athena.client.data.models.JobSubmitResponse
+import com.athena.client.data.models.PersonalitiesResponse
 import com.athena.client.data.models.PromptRequest
 import com.athena.client.data.models.PromptResponse
 import com.athena.client.data.models.SpeakRequest
@@ -31,6 +32,9 @@ interface AthenaApi {
 
     @GET("api/voices")
     suspend fun getVoices(): VoicesResponse
+
+    @GET("api/personalities")
+    suspend fun getPersonalities(): PersonalitiesResponse
 
     @POST("api/speak/job")
     suspend fun submitSpeakJob(@Body request: SpeakRequest): JobSubmitResponse

@@ -15,5 +15,7 @@ data class ConversationEntity(
     val title: String,
     val type: ConversationType,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val personalityKey: String? = null,
+    val customPersonality: String? = null
 )

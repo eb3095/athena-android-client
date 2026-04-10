@@ -1,6 +1,7 @@
 package com.athena.client
 
 import android.app.Application
+import com.athena.client.data.PersonalityRepository
 import com.athena.client.data.local.AppDatabase
 import com.athena.client.data.local.AudioFileManager
 import com.athena.client.data.local.ConversationRepository
@@ -12,5 +13,8 @@ class AthenaApplication : Application() {
     val settingsManager by lazy { SettingsManager(this) }
     val conversationRepository by lazy { 
         ConversationRepository(database.conversationDao(), audioFileManager) 
+    }
+    val personalityRepository by lazy {
+        PersonalityRepository(database.personalityDao())
     }
 }

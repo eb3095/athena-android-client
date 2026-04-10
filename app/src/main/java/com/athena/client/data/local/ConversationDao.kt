@@ -65,6 +65,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateConversationTitle(id: String, title: String, updatedAt: Long)
 
+    @Query("UPDATE conversations SET personalityKey = :personalityKey, customPersonality = :customPersonality, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateConversationPersonality(id: String, personalityKey: String?, customPersonality: String?, updatedAt: Long)
+
     @Transaction
     suspend fun insertConversationWithMessage(conversation: ConversationEntity, message: MessageEntity) {
         insertConversation(conversation)

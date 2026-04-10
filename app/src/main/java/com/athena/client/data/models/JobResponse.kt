@@ -55,14 +55,18 @@ data class ConversationMessage(
 data class ConversationJobRequest(
     val messages: List<ConversationMessage>,
     val speaker: Boolean = false,
-    @SerialName("speaker_voice") val speakerVoice: String? = null
+    @SerialName("speaker_voice") val speakerVoice: String? = null,
+    val personality: String? = null,
+    @SerialName("personality_custom") val personalityCustom: String? = null
 )
 
 @Serializable
 data class ConversationStreamJobRequest(
     val messages: List<ConversationMessage>,
     @SerialName("speaker_voice") val speakerVoice: String? = null,
-    @SerialName("sentence_pause_ms") val sentencePauseMs: Int? = null
+    @SerialName("sentence_pause_ms") val sentencePauseMs: Int? = null,
+    val personality: String? = null,
+    @SerialName("personality_custom") val personalityCustom: String? = null
 )
 
 @Serializable

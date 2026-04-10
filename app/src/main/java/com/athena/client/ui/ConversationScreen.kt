@@ -74,6 +74,7 @@ import com.athena.client.audio.AudioPlayer
 import com.athena.client.data.local.MessageRole
 import com.athena.client.speech.SpeechRecognizerManager
 import com.athena.client.ui.components.MicButton
+import com.athena.client.ui.components.PersonalitySelector
 import com.athena.client.ui.components.SettingsDialog
 import com.athena.client.ui.components.ThinkingIndicator
 import com.athena.client.ui.components.VoiceSelector
@@ -233,6 +234,7 @@ fun ConversationScreen(
             nextSentenceToPlay >= uiState.streamingSentences.size &&
             currentStreamingMessageId != null) {
             viewModel.setPlayingMessage(null)
+            viewModel.clearStreamingState()
             currentStreamingMessageId = null
         }
     }
@@ -489,6 +491,24 @@ fun ConversationScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    PersonalitySelector(
+                        selectedPersonalityKey = uiState.selectedPersonalityKey,
+                        serverPersonalities = uiState.serverPersonalities,
+                        customPersonalities = uiState.customPersonalities,
+                        isLoading = uiState.isLoadingPersonalities,
+                        onExpand = { if (isConnected) viewModel.fetchPersonalities() },
+                        onPersonalitySelected = { key, customPrompt -> 
+                            viewModel.setSelectedPersonality(key, customPrompt)
+                        },
+                        onAddCustomPersonality = { name, prompt ->
+                            viewModel.addCustomPersonality(name, prompt)
+                        },
+                        onDeleteCustomPersonality = { key ->
+                            viewModel.deleteCustomPersonality(key)
+                        },
+                        enabled = isConnected
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
                     MicButton(
                         isListening = uiState.isListening,
                         isProcessing = showProgress || !speechAvailable || !isConnected,
@@ -507,7 +527,7 @@ fun ConversationScreen(
                             }
                         }
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     VoiceSelector(
                         selectedVoice = uiState.selectedVoice,
                         voices = uiState.voices,

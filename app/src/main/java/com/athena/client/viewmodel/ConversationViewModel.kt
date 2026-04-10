@@ -9,10 +9,12 @@ import com.athena.client.data.ApiClient
 import com.athena.client.data.local.ConversationType
 import com.athena.client.data.local.MessageEntity
 import com.athena.client.data.local.MessageRole
+import com.athena.client.data.local.PersonalityEntity
 import com.athena.client.data.models.ConversationJobRequest
 import com.athena.client.data.models.ConversationMessage
 import com.athena.client.data.models.ConversationStreamJobRequest
 import com.athena.client.data.models.FormatTextRequest
+import com.athena.client.data.models.Personality
 import com.athena.client.data.models.SummarizeRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -47,10 +49,19 @@ data class ConversationUiState(
     val streamingSentences: List<SentenceAudioItem> = emptyList(),
     val streamingCombinedAudio: String? = null,
     val streamingComplete: Boolean = false,
-    val initialLoadComplete: Boolean = false
+    val initialLoadComplete: Boolean = false,
+    val serverPersonalities: List<Personality> = emptyList(),
+    val customPersonalities: List<PersonalityEntity> = emptyList(),
+    val selectedPersonalityKey: String? = null,
+    val customPersonalityPrompt: String? = null,
+    val isLoadingPersonalities: Boolean = false
 ) {
     val isVoiceEnabled: Boolean
         get() = selectedVoice != VOICE_NONE
+    
+    val allPersonalities: List<Pair<String, String>>
+        get() = serverPersonalities.map { it.key to it.personality } +
+                customPersonalities.map { it.key to it.personality }
 }
 
 class ConversationViewModel(application: Application) : AndroidViewModel(application) {
@@ -66,6 +77,7 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
     private val app = application as AthenaApplication
     private val repository = app.conversationRepository
     private val settingsManager = app.settingsManager
+    private val personalityRepository = app.personalityRepository
 
     private val _uiState = MutableStateFlow(ConversationUiState())
     val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
@@ -78,6 +90,16 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             settingsManager.useStreamingMode.collect { enabled ->
                 _uiState.update { it.copy(useStreamingMode = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            personalityRepository.customPersonalities.collect { customs ->
+                _uiState.update { it.copy(customPersonalities = customs) }
+            }
+        }
+        viewModelScope.launch {
+            personalityRepository.serverPersonalities.collect { server ->
+                _uiState.update { it.copy(serverPersonalities = server) }
             }
         }
     }
@@ -103,7 +125,9 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                 _uiState.update { 
                     it.copy(
                         conversationId = conversationId,
-                        title = conversation.title
+                        title = conversation.title,
+                        selectedPersonalityKey = conversation.personalityKey,
+                        customPersonalityPrompt = conversation.customPersonality
                     )
                 }
                 
@@ -160,6 +184,52 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
         settingsManager.setUseStreamingMode(enabled)
     }
 
+    fun fetchPersonalities() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingPersonalities = true) }
+            
+            try {
+                personalityRepository.fetchServerPersonalities()
+                _uiState.update { it.copy(isLoadingPersonalities = false) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch personalities", e)
+                _uiState.update { it.copy(isLoadingPersonalities = false) }
+            }
+        }
+    }
+
+    fun setSelectedPersonality(key: String?, customPrompt: String? = null) {
+        val conversationId = _uiState.value.conversationId ?: return
+        
+        _uiState.update { 
+            it.copy(
+                selectedPersonalityKey = key,
+                customPersonalityPrompt = customPrompt
+            )
+        }
+        
+        viewModelScope.launch {
+            repository.updateConversationPersonality(conversationId, key, customPrompt)
+        }
+    }
+
+    fun addCustomPersonality(key: String, personality: String) {
+        viewModelScope.launch {
+            personalityRepository.addCustomPersonality(key, personality)
+        }
+    }
+
+    fun deleteCustomPersonality(key: String) {
+        viewModelScope.launch {
+            personalityRepository.deleteCustomPersonality(key)
+            if (_uiState.value.selectedPersonalityKey == key) {
+                setSelectedPersonality(null)
+            }
+        }
+    }
+
     fun sendMessage(rawText: String) {
         if (rawText.isBlank()) return
         val conversationId = _uiState.value.conversationId ?: return
@@ -206,6 +276,8 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                 val currentVoice = _uiState.value.selectedVoice
                 val useVoice = currentVoice != VOICE_NONE
                 val useStreaming = _uiState.value.useStreamingMode
+                val personalityKey = _uiState.value.selectedPersonalityKey
+                val customPersonality = _uiState.value.customPersonalityPrompt
                 
                 if (useVoice && useStreaming) {
                     Log.d(TAG, "Submitting conversation stream job")
@@ -213,7 +285,9 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                     val submitResponse = api.submitConversationStreamJob(
                         ConversationStreamJobRequest(
                             messages = contextMessages,
-                            speakerVoice = if (currentVoice != null) currentVoice else null
+                            speakerVoice = if (currentVoice != null) currentVoice else null,
+                            personality = personalityKey,
+                            personalityCustom = customPersonality
                         )
                     )
                     
@@ -233,7 +307,9 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         ConversationJobRequest(
                             messages = contextMessages,
                             speaker = useVoice,
-                            speakerVoice = if (useVoice && currentVoice != null) currentVoice else null
+                            speakerVoice = if (useVoice && currentVoice != null) currentVoice else null,
+                            personality = personalityKey,
+                            personalityCustom = customPersonality
                         )
                     )
                     
@@ -430,14 +506,12 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                             )
                         }
                         
+                        // Only stop polling, keep streaming state for UI playback
+                        // UI will call clearStreamingState() when all audio finishes
                         _uiState.update { 
                             it.copy(
                                 isPolling = false,
-                                currentJobId = null,
-                                streamingMessageId = null,
-                                streamingSentences = emptyList(),
-                                streamingCombinedAudio = null,
-                                streamingComplete = false
+                                currentJobId = null
                             )
                         }
                         return
@@ -480,6 +554,17 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
 
     fun setPlayingMessage(messageId: String?) {
         _uiState.update { it.copy(playingMessageId = messageId) }
+    }
+
+    fun clearStreamingState() {
+        _uiState.update { 
+            it.copy(
+                streamingMessageId = null,
+                streamingSentences = emptyList(),
+                streamingCombinedAudio = null,
+                streamingComplete = false
+            )
+        }
     }
 
     fun clearError() {
