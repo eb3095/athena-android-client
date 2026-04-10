@@ -9,6 +9,7 @@ A minimalistic Android voice assistant client for Athena. Speak to the app, and 
 ## Features
 
 - **Conversations** - Multi-turn AI conversations with context persistence
+- **Personalities** - Select AI personality per conversation (pirate, nerdy, professional, etc.) or create custom ones
 - **Transcripts** - Convert spoken or typed text to audio in selected voice
 - **Persistent Storage** - All conversations and transcripts saved locally (Room database)
 - **Voice Input** - Speak prompts via Android SpeechRecognizer
@@ -149,12 +150,15 @@ athena-android-client/
 │   │   │   ├── ApiClient.kt         # Retrofit setup
 │   │   │   ├── AthenaApi.kt         # API interface
 │   │   │   ├── models/              # Request/response models
+│   │   │   ├── PersonalityRepository.kt  # Personality management
 │   │   │   └── local/               # Room database
 │   │   │       ├── AppDatabase.kt
 │   │   │       ├── ConversationDao.kt
 │   │   │       ├── ConversationEntity.kt
 │   │   │       ├── ConversationRepository.kt
-│   │   │       └── MessageEntity.kt
+│   │   │       ├── MessageEntity.kt
+│   │   │       ├── PersonalityDao.kt
+│   │   │       └── PersonalityEntity.kt
 │   │   ├── audio/                   # Audio playback
 │   │   │   └── AudioPlayer.kt
 │   │   ├── speech/                  # Voice recognition
@@ -171,7 +175,8 @@ athena-android-client/
 │   │   │   │   ├── MicButton.kt
 │   │   │   │   ├── SpeakButton.kt
 │   │   │   │   ├── MimicButton.kt
-│   │   │   │   └── VoiceSelector.kt
+│   │   │   │   ├── VoiceSelector.kt
+│   │   │   │   └── PersonalitySelector.kt
 │   │   │   └── theme/               # App theme
 │   │   └── viewmodel/
 │   │       ├── AppViewModel.kt      # Global state
@@ -197,6 +202,7 @@ athena-android-client/
 | `/api/format/text` | POST | Clean up STT text (punctuation, grammar) |
 | `/api/summarize` | POST | Generate short title from text |
 | `/api/voices` | GET | List available voices |
+| `/api/personalities` | GET | List available personalities |
 | `/health` | GET | Server health check |
 
 ### Request Format (Prompt)
