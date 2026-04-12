@@ -1,11 +1,9 @@
 package com.athena.client.ui
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.ToneGenerator
-import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -22,17 +20,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -42,6 +48,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -53,37 +60,36 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.athena.client.audio.AudioPlayer
+import com.athena.client.data.local.MessageEntity
+import com.athena.client.data.local.MessageRole
 import com.athena.client.speech.SpeechRecognizerManager
+import com.athena.client.ui.components.CouncilMemberSelector
+import com.athena.client.ui.components.CouncilResponseDetailsSheet
+import com.athena.client.ui.components.SettingsDialog
 import com.athena.client.ui.components.MicButton
-import com.athena.client.ui.components.ResponseCard
 import com.athena.client.ui.components.SwipeableInputBar
 import com.athena.client.ui.components.ThinkingIndicator
+import com.athena.client.ui.components.ViewAdvisorsButton
 import com.athena.client.ui.components.VoiceSelector
-import com.athena.client.viewmodel.TranscriptViewModel
-import kotlinx.coroutines.launch
-import java.io.File
+import com.athena.client.viewmodel.CouncilViewModel
+import com.mikepenz.markdown.m3.Markdown
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TranscriptScreen(
-    transcriptId: String,
+fun CouncilScreen(
+    councilId: String,
     onMenuClick: () -> Unit,
-    viewModel: TranscriptViewModel = viewModel()
+    viewModel: CouncilViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -91,57 +97,15 @@ fun TranscriptScreen(
     val isConnected by viewModel.isConnected.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
-    val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(transcriptId) {
-        viewModel.loadTranscript(transcriptId)
+    LaunchedEffect(councilId) {
+        viewModel.loadCouncil(councilId)
     }
 
     val showProgress = uiState.isLoading || uiState.isPolling
+
     LaunchedEffect(showProgress, uiState.playingMessageId) {
         view.keepScreenOn = showProgress || uiState.playingMessageId != null
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && uiState.messages.isNotEmpty()) {
-                coroutineScope.launch {
-                    listState.animateScrollToItem(uiState.messages.size - 1)
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    fun shareAudio(audioBase64: String, voice: String?) {
-        try {
-            val audioBytes = Base64.decode(audioBase64, Base64.DEFAULT)
-            val fileName = "athena_audio_${System.currentTimeMillis()}.mp3"
-            val cacheDir = File(context.cacheDir, "shared_audio")
-            cacheDir.mkdirs()
-            val audioFile = File(cacheDir, fileName)
-            audioFile.writeBytes(audioBytes)
-            
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                audioFile
-            )
-            
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "audio/mpeg"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "Athena Audio" + (voice?.let { " ($it)" } ?: ""))
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(shareIntent, "Share audio"))
-        } catch (e: Exception) {
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Failed to share audio: ${e.message}")
-            }
-        }
     }
 
     var hasPermission by remember {
@@ -160,11 +124,12 @@ fun TranscriptScreen(
     val audioPlayer = remember { AudioPlayer() }
     var speechAvailable by remember { mutableStateOf(true) }
     var isTextMode by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
 
     val speechRecognizer = remember {
         SpeechRecognizerManager(
             context = context,
-            onResult = { result -> viewModel.speakText(result) },
+            onResult = { result -> viewModel.sendMessage(result, fromVoice = true) },
             onPartialResult = {},
             onError = { viewModel.setListening(false) },
             onListeningStateChanged = { listening -> viewModel.setListening(listening) }
@@ -184,17 +149,72 @@ fun TranscriptScreen(
         }
     }
 
+    var nextSentenceToPlay by remember { mutableIntStateOf(0) }
+    var isPlayingStreamingSentence by remember { mutableStateOf(false) }
+    var currentStreamingMessageId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(uiState.isStreamingMuted) {
+        if (uiState.isStreamingMuted && isPlayingStreamingSentence) {
+            audioPlayer.stop()
+            isPlayingStreamingSentence = false
+            viewModel.setPlayingMessage(null)
+        }
+    }
+    
+    LaunchedEffect(uiState.streamingSentences, isPlayingStreamingSentence, uiState.isStreamingMuted) {
+        if (uiState.streamingSentences.isNotEmpty() && !isPlayingStreamingSentence && !uiState.isStreamingMuted) {
+            if (currentStreamingMessageId == null) {
+                currentStreamingMessageId = uiState.streamingMessageId
+                nextSentenceToPlay = 0
+            }
+
+            val completedSentences = uiState.streamingSentences.filter { 
+                it.status == "completed" && it.audio != null 
+            }
+            val nextSentence = completedSentences.find { it.index == nextSentenceToPlay }
+
+            if (nextSentence?.audio != null) {
+                isPlayingStreamingSentence = true
+                viewModel.setPlayingMessage(currentStreamingMessageId)
+                audioPlayer.play(
+                    base64Audio = nextSentence.audio,
+                    onCompletion = {
+                        nextSentenceToPlay++
+                        isPlayingStreamingSentence = false
+                    },
+                    onError = {
+                        nextSentenceToPlay++
+                        isPlayingStreamingSentence = false
+                        viewModel.setPlayingMessage(null)
+                    }
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(uiState.streamingComplete, nextSentenceToPlay, isPlayingStreamingSentence, uiState.isStreamingMuted) {
+        val shouldClear = uiState.streamingComplete && currentStreamingMessageId != null && (
+            (uiState.isStreamingMuted && !isPlayingStreamingSentence) ||
+            (!isPlayingStreamingSentence && nextSentenceToPlay >= uiState.streamingSentences.size)
+        )
+        if (shouldClear) {
+            viewModel.setPlayingMessage(null)
+            viewModel.clearStreamingState()
+            currentStreamingMessageId = null
+        }
+    }
+
     var previousMessageCount by remember { mutableIntStateOf(-1) }
+    
+    LaunchedEffect(uiState.messages.size) {
+        if (uiState.messages.isNotEmpty() && uiState.initialLoadComplete) {
+            if (previousMessageCount >= 0 && uiState.messages.size > previousMessageCount) {
+                listState.animateScrollToItem(uiState.messages.size - 1)
 
-    LaunchedEffect(uiState.messages.size, uiState.initialLoadComplete) {
-        if (uiState.messages.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.messages.size - 1)
-
-            if (uiState.initialLoadComplete && previousMessageCount >= 0 && 
-                uiState.messages.size > previousMessageCount) {
                 val latestMessage = uiState.messages.last()
-                latestMessage.audioPath?.let { audioPath ->
-                    val audio = viewModel.loadAudio(audioPath)
+                if (latestMessage.role == MessageRole.ASSISTANT && 
+                    uiState.streamingSentences.isEmpty()) {
+                    val audio = viewModel.loadAudio(latestMessage.audioPath)
                     if (audio != null) {
                         audioPlayer.stop()
                         viewModel.setPlayingMessage(latestMessage.id)
@@ -206,30 +226,74 @@ fun TranscriptScreen(
                     }
                 }
             }
-        }
-        if (uiState.initialLoadComplete && previousMessageCount < 0) {
             previousMessageCount = uiState.messages.size
         } else if (previousMessageCount >= 0) {
             previousMessageCount = uiState.messages.size
         }
     }
 
+    if (uiState.showingCouncilDetails != null) {
+        CouncilResponseDetailsSheet(
+            memberResponses = uiState.showingCouncilDetails!!,
+            onDismiss = { viewModel.hideCouncilDetails() }
+        )
+    }
+
+    if (showSettingsDialog) {
+        SettingsDialog(
+            useStreamingMode = uiState.useStreamingMode,
+            onStreamingModeChanged = { viewModel.setStreamingMode(it) },
+            councilUserTraits = uiState.councilUserTraits,
+            councilUserGoal = uiState.councilUserGoal,
+            onAddTrait = { viewModel.addCouncilUserTrait(it) },
+            onRemoveTrait = { viewModel.removeCouncilUserTrait(it) },
+            onGoalChanged = { viewModel.setCouncilUserGoal(it) },
+            defaultVoice = uiState.defaultVoice,
+            onDefaultVoiceChanged = { viewModel.setDefaultVoice(it) },
+            defaultPersonality = uiState.defaultPersonality,
+            onDefaultPersonalityChanged = { viewModel.setDefaultPersonality(it) },
+            defaultCouncilMembers = uiState.defaultCouncilMembers,
+            onDefaultCouncilMembersChanged = { viewModel.setDefaultCouncilMembers(it) },
+            apiKey = uiState.apiKey,
+            onApiKeyChanged = { viewModel.setApiKey(it) },
+            serverUrls = uiState.serverUrls,
+            onServerUrlsChanged = { viewModel.setServerUrls(it) },
+            onDismiss = { showSettingsDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Transcript",
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Groups,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = uiState.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onMenuClick) {
                         Icon(
                             imageVector = Icons.Filled.Menu,
                             contentDescription = "Menu"
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSettingsDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings"
                         )
                     }
                 },
@@ -266,14 +330,21 @@ fun TranscriptScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(32.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Filled.Groups,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Create transcripts",
+                            text = "Ask your council",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Type or speak text to hear it in different voices",
+                            text = "Your advisors will deliberate and provide guidance",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -291,39 +362,33 @@ fun TranscriptScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uiState.messages, key = { it.id }) { message ->
-                    ResponseCard(
-                        text = message.content,
-                        hasAudio = message.audioPath != null,
+                    CouncilMessageBubble(
+                        message = message,
                         isPlaying = uiState.playingMessageId == message.id,
-                        isTranscript = true,
-                        voice = message.voice,
                         onPlayClick = {
                             if (uiState.playingMessageId == message.id) {
                                 audioPlayer.stop()
                                 viewModel.setPlayingMessage(null)
                             } else {
-                                message.audioPath?.let { audioPath ->
-                                    val audio = viewModel.loadAudio(audioPath)
-                                    if (audio != null) {
-                                        audioPlayer.stop()
-                                        viewModel.setPlayingMessage(message.id)
-                                        audioPlayer.play(
-                                            base64Audio = audio,
-                                            onCompletion = { viewModel.setPlayingMessage(null) },
-                                            onError = { viewModel.setPlayingMessage(null) }
-                                        )
-                                    }
+                                val audio = viewModel.loadAudio(message.audioPath)
+                                if (audio != null) {
+                                    audioPlayer.stop()
+                                    viewModel.setPlayingMessage(message.id)
+                                    audioPlayer.play(
+                                        base64Audio = audio,
+                                        onCompletion = { viewModel.setPlayingMessage(null) },
+                                        onError = { viewModel.setPlayingMessage(null) }
+                                    )
                                 }
                             }
                         },
-                        onShareClick = message.audioPath?.let { audioPath ->
-                            { 
-                                val audio = viewModel.loadAudio(audioPath)
-                                if (audio != null) {
-                                    shareAudio(audio, message.voice)
-                                }
+                        onViewAdvisors = {
+                            val details = viewModel.getCouncilDetailsForMessage(message)
+                            if (details != null) {
+                                viewModel.showCouncilDetails(details)
                             }
-                        }
+                        },
+                        hasCouncilDetails = message.councilDetails != null
                     )
                 }
 
@@ -335,8 +400,7 @@ fun TranscriptScreen(
             }
 
             Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter),
+                modifier = Modifier.align(Alignment.BottomCenter),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 androidx.compose.animation.AnimatedVisibility(
@@ -421,14 +485,63 @@ fun TranscriptScreen(
                         )
                     }
                 }
+                
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = uiState.streamingMessageId != null,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(bottom = 8.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            .clickable { viewModel.toggleStreamingMute() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.isStreamingMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                            contentDescription = if (uiState.isStreamingMuted) "Unmute" else "Mute",
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (uiState.isStreamingMuted) "Audio muted" else "Tap to mute",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
 
                 SwipeableInputBar(
                     isTextMode = isTextMode,
                     onTextModeChange = { isTextMode = it },
-                    onSend = { text -> viewModel.speakText(text) },
-                    placeholder = "Type text to speak...",
+                    onSend = { text -> viewModel.sendMessage(text) },
+                    placeholder = "Ask your council...",
                     enabled = isConnected && !showProgress
                 ) {
+                    CouncilMemberSelector(
+                        serverMembers = uiState.serverCouncilMembers,
+                        selectedMembers = uiState.selectedCouncilMembers,
+                        customMembers = uiState.customCouncilMembers,
+                        isLoading = uiState.isLoadingCouncilMembers,
+                        onExpand = { if (isConnected) viewModel.fetchCouncilMembers() },
+                        onMemberToggled = { name, selected -> 
+                            viewModel.toggleCouncilMember(name, selected)
+                        },
+                        onAddCustomMember = { name, prompt ->
+                            viewModel.addCustomCouncilMember(name, prompt)
+                        },
+                        onDeleteCustomMember = { name ->
+                            viewModel.deleteCustomCouncilMember(name)
+                        },
+                        enabled = isConnected
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
                     MicButton(
                         isListening = uiState.isListening,
                         isProcessing = showProgress || !speechAvailable || !isConnected,
@@ -456,6 +569,104 @@ fun TranscriptScreen(
                         onVoiceSelected = { viewModel.setSelectedVoice(it) },
                         enabled = isConnected
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CouncilMessageBubble(
+    message: MessageEntity,
+    isPlaying: Boolean,
+    onPlayClick: () -> Unit,
+    onViewAdvisors: () -> Unit,
+    hasCouncilDetails: Boolean
+) {
+    val isUser = message.role == MessageRole.USER
+    
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isUser) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        }
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!isUser) {
+                        Icon(
+                            imageVector = Icons.Filled.Groups,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = if (isUser) "You" else "Advisor",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isUser) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        }
+                    )
+                }
+                if (message.voice != null && !isUser) {
+                    Text(
+                        text = message.voice,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            if (isUser) {
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            } else {
+                Markdown(
+                    content = message.content,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            
+            if (!isUser) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (message.audioPath != null) {
+                        IconButton(
+                            onClick = onPlayClick,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    
+                    if (hasCouncilDetails) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        ViewAdvisorsButton(onClick = onViewAdvisors)
+                    }
                 }
             }
         }

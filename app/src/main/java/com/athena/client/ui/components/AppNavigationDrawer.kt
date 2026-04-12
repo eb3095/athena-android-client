@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -47,6 +48,7 @@ fun AppNavigationDrawer(
     conversations: List<ConversationEntity>,
     currentConversationId: String?,
     onNewConversation: () -> Unit,
+    onNewCouncil: () -> Unit,
     onNewTranscript: () -> Unit,
     onSelectConversation: (ConversationEntity) -> Unit,
     onDeleteConversation: (ConversationEntity) -> Unit,
@@ -54,6 +56,7 @@ fun AppNavigationDrawer(
     modifier: Modifier = Modifier
 ) {
     val conversationsList = conversations.filter { it.type == ConversationType.CONVERSATION }
+    val councilsList = conversations.filter { it.type == ConversationType.COUNCIL }
     val transcriptsList = conversations.filter { it.type == ConversationType.TRANSCRIPT }
     
     ModalDrawerSheet(
@@ -72,29 +75,50 @@ fun AppNavigationDrawer(
                 modifier = Modifier.padding(vertical = 16.dp)
             )
             
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    onClick = onNewConversation,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Chat", style = MaterialTheme.typography.labelMedium)
+                    Button(
+                        onClick = onNewConversation,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Chat", style = MaterialTheme.typography.labelMedium)
+                    }
+                    
+                    Button(
+                        onClick = onNewCouncil,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Council", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
                 
                 Button(
                     onClick = onNewTranscript,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.secondary
                     )
@@ -131,6 +155,27 @@ fun AppNavigationDrawer(
                             isSelected = conversation.id == currentConversationId,
                             onClick = { onSelectConversation(conversation) },
                             onDelete = { onDeleteConversation(conversation) }
+                        )
+                    }
+                }
+                
+                if (councilsList.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Council Sessions",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                    
+                    items(councilsList, key = { it.id }) { council ->
+                        ConversationListItem(
+                            conversation = council,
+                            isSelected = council.id == currentConversationId,
+                            onClick = { onSelectConversation(council) },
+                            onDelete = { onDeleteConversation(council) }
                         )
                     }
                 }
@@ -225,10 +270,10 @@ private fun ConversationListItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (conversation.type == ConversationType.CONVERSATION) {
-                    Icons.Filled.Chat
-                } else {
-                    Icons.Filled.RecordVoiceOver
+                imageVector = when (conversation.type) {
+                    ConversationType.CONVERSATION -> Icons.Filled.Chat
+                    ConversationType.COUNCIL -> Icons.Filled.Groups
+                    ConversationType.TRANSCRIPT -> Icons.Filled.RecordVoiceOver
                 },
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),

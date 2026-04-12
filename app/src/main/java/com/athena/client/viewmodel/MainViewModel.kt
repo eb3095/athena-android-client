@@ -1,8 +1,10 @@
 package com.athena.client.viewmodel
 
+import android.app.Application
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.athena.client.AthenaApplication
 import com.athena.client.data.ApiClient
 import com.athena.client.data.models.PromptRequest
 import com.athena.client.data.models.SpeakRequest
@@ -22,7 +24,7 @@ import java.util.UUID
 
 private const val TAG = "MainViewModel"
 
-const val VOICE_NONE = "__none__"
+const val VOICE_NONE = "none"
 
 enum class ResponseType {
     AI_RESPONSE,
@@ -61,13 +63,16 @@ data class UiState(
     val selectedVoice: String? = null,
     val isLoadingVoices: Boolean = false,
     val streamingResponseId: String? = null,
-    val useStreamingMode: Boolean = true
+    val useStreamingMode: Boolean = true,
+    val apiKey: String? = null,
+    val serverUrls: String? = null,
+    val isStreamingMuted: Boolean = false
 ) {
     val isVoiceEnabled: Boolean
         get() = selectedVoice != VOICE_NONE
 }
 
-class MainViewModel : ViewModel() {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val INITIAL_POLL_DELAY_MS = 1000L
@@ -76,6 +81,9 @@ class MainViewModel : ViewModel() {
         private const val MAX_POLL_TIME_MS = 600000L
     }
 
+    private val app = application as AthenaApplication
+    private val settingsManager = app.settingsManager
+    
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -84,6 +92,16 @@ class MainViewModel : ViewModel() {
 
     init {
         ApiClient.startHealthChecks()
+        viewModelScope.launch {
+            settingsManager.apiKey.collect { key ->
+                _uiState.update { it.copy(apiKey = key) }
+            }
+        }
+        viewModelScope.launch {
+            settingsManager.serverUrls.collect { urls ->
+                _uiState.update { it.copy(serverUrls = urls) }
+            }
+        }
     }
 
     override fun onCleared() {
@@ -123,6 +141,22 @@ class MainViewModel : ViewModel() {
 
     fun setStreamingMode(enabled: Boolean) {
         _uiState.update { it.copy(useStreamingMode = enabled) }
+    }
+    
+    fun setApiKey(key: String?) {
+        settingsManager.setApiKey(key)
+    }
+    
+    fun setServerUrls(urls: String?) {
+        settingsManager.setServerUrls(urls)
+    }
+    
+    fun toggleStreamingMute() {
+        _uiState.update { it.copy(isStreamingMuted = !it.isStreamingMuted) }
+    }
+    
+    fun setStreamingMuted(muted: Boolean) {
+        _uiState.update { it.copy(isStreamingMuted = muted) }
     }
 
     fun sendPrompt(text: String) {
@@ -499,6 +533,7 @@ class MainViewModel : ViewModel() {
                         isPolling = false,
                         currentJobId = null,
                         streamingResponseId = null,
+                        isStreamingMuted = false,
                         error = "Request timed out. Please try again."
                     )
                 }
@@ -571,7 +606,8 @@ class MainViewModel : ViewModel() {
                             it.copy(
                                 isPolling = false,
                                 currentJobId = null,
-                                streamingResponseId = null
+                                streamingResponseId = null,
+                                isStreamingMuted = false
                             )
                         }
                         return
@@ -583,6 +619,7 @@ class MainViewModel : ViewModel() {
                                 isPolling = false,
                                 currentJobId = null,
                                 streamingResponseId = null,
+                                isStreamingMuted = false,
                                 error = status.error ?: "Request failed"
                             )
                         }
@@ -601,6 +638,7 @@ class MainViewModel : ViewModel() {
                             isPolling = false,
                             currentJobId = null,
                             streamingResponseId = null,
+                            isStreamingMuted = false,
                             error = "Request lost. Please try again."
                         )
                     }

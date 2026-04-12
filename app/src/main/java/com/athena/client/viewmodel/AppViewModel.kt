@@ -23,6 +23,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val useStreamingMode: StateFlow<Boolean> = settingsManager.useStreamingMode
+    val councilUserTraits: StateFlow<List<String>> = settingsManager.councilUserTraits
+    val councilUserGoal: StateFlow<String> = settingsManager.councilUserGoal
+    val defaultVoice: StateFlow<String?> = settingsManager.defaultVoice
+    val defaultPersonality: StateFlow<String?> = settingsManager.defaultPersonality
+    val defaultCouncilMembers: StateFlow<List<String>> = settingsManager.defaultCouncilMembers
+    val apiKey: StateFlow<String?> = settingsManager.apiKey
+    val serverUrls: StateFlow<String?> = settingsManager.serverUrls
 
     private val _showDeleteConfirmation = MutableStateFlow<ConversationEntity?>(null)
     val showDeleteConfirmation: StateFlow<ConversationEntity?> = _showDeleteConfirmation
@@ -64,8 +71,50 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return newId
     }
 
+    suspend fun createCouncil(): String {
+        val previousId = currentConversationId
+        if (previousId != null) {
+            repository.deleteConversationIfEmpty(previousId)
+        }
+        val newId = repository.createConversation(ConversationType.COUNCIL)
+        currentConversationId = newId
+        return newId
+    }
+
     fun setStreamingMode(enabled: Boolean) {
         settingsManager.setUseStreamingMode(enabled)
+    }
+
+    fun addCouncilUserTrait(trait: String) {
+        settingsManager.addCouncilUserTrait(trait)
+    }
+
+    fun removeCouncilUserTrait(trait: String) {
+        settingsManager.removeCouncilUserTrait(trait)
+    }
+
+    fun setCouncilUserGoal(goal: String) {
+        settingsManager.setCouncilUserGoal(goal)
+    }
+    
+    fun setDefaultVoice(voice: String?) {
+        settingsManager.setDefaultVoice(voice)
+    }
+    
+    fun setDefaultPersonality(personality: String?) {
+        settingsManager.setDefaultPersonality(personality)
+    }
+    
+    fun setDefaultCouncilMembers(members: List<String>) {
+        settingsManager.setDefaultCouncilMembers(members)
+    }
+    
+    fun setApiKey(key: String?) {
+        settingsManager.setApiKey(key)
+    }
+    
+    fun setServerUrls(urls: String?) {
+        settingsManager.setServerUrls(urls)
     }
 
     fun deleteConversation(conversation: ConversationEntity) {

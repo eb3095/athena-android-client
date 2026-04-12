@@ -2,6 +2,11 @@ package com.athena.client.data
 
 import com.athena.client.data.models.ConversationJobRequest
 import com.athena.client.data.models.ConversationStreamJobRequest
+import com.athena.client.data.models.CouncilJobRequest
+import com.athena.client.data.models.CouncilJobStatusResponse
+import com.athena.client.data.models.CouncilMembersResponse
+import com.athena.client.data.models.CouncilStreamJobRequest
+import com.athena.client.data.models.CouncilStreamJobStatusResponse
 import com.athena.client.data.models.FormatTextRequest
 import com.athena.client.data.models.FormatTextResponse
 import com.athena.client.data.models.JobStatusResponse
@@ -60,6 +65,21 @@ interface AthenaApi {
     @GET("api/conversation/stream/job/{jobId}")
     suspend fun getConversationStreamJobStatus(@Path("jobId") jobId: String): StreamJobStatusResponse
 
+    @GET("api/council/members")
+    suspend fun getCouncilMembers(): CouncilMembersResponse
+
+    @POST("api/council/job")
+    suspend fun submitCouncilJob(@Body request: CouncilJobRequest): JobSubmitResponse
+
+    @GET("api/council/job/{jobId}")
+    suspend fun getCouncilJobStatus(@Path("jobId") jobId: String): CouncilJobStatusResponse
+
+    @POST("api/council/stream/job")
+    suspend fun submitCouncilStreamJob(@Body request: CouncilStreamJobRequest): JobSubmitResponse
+
+    @GET("api/council/stream/job/{jobId}")
+    suspend fun getCouncilStreamJobStatus(@Path("jobId") jobId: String): CouncilStreamJobStatusResponse
+
     @POST("api/format/text")
     suspend fun formatText(@Body request: FormatTextRequest): FormatTextResponse
 
@@ -67,5 +87,10 @@ interface AthenaApi {
     suspend fun summarize(@Body request: SummarizeRequest): SummarizeResponse
 
     @GET("health")
-    suspend fun health(): Unit
+    suspend fun health(): HealthResponse
 }
+
+@kotlinx.serialization.Serializable
+data class HealthResponse(
+    val status: String
+)

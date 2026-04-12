@@ -31,5 +31,8 @@ data class MessageEntity(
     val content: String,
     val audioPath: String? = null,
     val voice: String? = null,
-    val timestamp: Long
+    val timestamp: Long,
+    val councilDetails: String? = null,
+    val pendingJobId: String? = null,
+    val pendingJobType: String? = null
 )

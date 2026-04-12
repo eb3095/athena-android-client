@@ -1,6 +1,7 @@
 package com.athena.client
 
 import android.app.Application
+import com.athena.client.data.ApiClient
 import com.athena.client.data.PersonalityRepository
 import com.athena.client.data.local.AppDatabase
 import com.athena.client.data.local.AudioFileManager
@@ -16,5 +17,10 @@ class AthenaApplication : Application() {
     }
     val personalityRepository by lazy {
         PersonalityRepository(database.personalityDao())
+    }
+    
+    override fun onCreate() {
+        super.onCreate()
+        ApiClient.initialize(settingsManager)
     }
 }

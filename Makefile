@@ -1,6 +1,7 @@
 IMAGE_NAME := athena-android-builder
+GRADLE_CACHE := $(HOME)/.gradle-docker-cache
 
-.PHONY: clean build debug release install uninstall icons docker-build docker-clean check-config
+.PHONY: clean build debug release install uninstall reinstall icons docker-build docker-clean check-config docker-image
 
 build: docker-build
 
@@ -15,16 +16,32 @@ check-config:
 		exit 1; \
 	fi
 
-docker-build: check-config
-	@echo "Building Android app with Docker..."
+docker-image:
+	@mkdir -p $(GRADLE_CACHE)
+	@if ! docker image inspect $(IMAGE_NAME) >/dev/null 2>&1; then \
+		echo "Building Docker image (first time)..."; \
+		docker build --platform linux/amd64 -t $(IMAGE_NAME) .; \
+	fi
+
+docker-rebuild:
+	@echo "Rebuilding Docker image..."
+	@mkdir -p $(GRADLE_CACHE)
 	docker build --platform linux/amd64 -t $(IMAGE_NAME) .
-	docker run --rm --platform linux/amd64 --network host -v "$(CURDIR)/app/build:/app/app/build" $(IMAGE_NAME)
+
+docker-build: check-config docker-image
+	@echo "Building Android app..."
+	docker run --rm --platform linux/amd64 --network host \
+		-v "$(CURDIR)/app:/app/app" \
+		-v "$(GRADLE_CACHE):/root/.gradle" \
+		$(IMAGE_NAME)
 	@echo "APK available at: app/build/outputs/apk/debug/app-debug.apk"
 
-release: check-config
-	@echo "Building release APK with Docker..."
-	docker build --platform linux/amd64 -t $(IMAGE_NAME) .
-	docker run --rm --platform linux/amd64 --network host -v "$(CURDIR)/app/build:/app/app/build" $(IMAGE_NAME) ./gradlew assembleRelease
+release: check-config docker-image
+	@echo "Building release APK..."
+	docker run --rm --platform linux/amd64 --network host \
+		-v "$(CURDIR)/app:/app/app" \
+		-v "$(GRADLE_CACHE):/root/.gradle" \
+		$(IMAGE_NAME) ./gradlew assembleRelease
 	@echo "APK available at: app/build/outputs/apk/release/app-release-unsigned.apk"
 
 clean:
@@ -34,12 +51,16 @@ clean:
 
 docker-clean:
 	docker rmi $(IMAGE_NAME) 2>/dev/null || true
+	rm -rf $(GRADLE_CACHE)
 
 install:
-	adb install -r app/build/outputs/apk/debug/app-debug.apk
+	adb install app/build/outputs/apk/debug/app-debug.apk
 
 uninstall:
-	adb uninstall com.athena.client || true
+	adb shell am force-stop com.athena.client
+	adb uninstall com.athena.client
+
+reinstall: uninstall install
 
 icons:
 	@echo "Generating app icons from image.png..."

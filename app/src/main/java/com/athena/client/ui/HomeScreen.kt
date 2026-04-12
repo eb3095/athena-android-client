@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
@@ -38,10 +39,26 @@ import com.athena.client.ui.components.SettingsDialog
 @Composable
 fun HomeScreen(
     onNewConversation: () -> Unit,
+    onNewCouncil: () -> Unit,
     onNewTranscript: () -> Unit,
     onMenuClick: () -> Unit,
     useStreamingMode: Boolean,
-    onStreamingModeChanged: (Boolean) -> Unit
+    onStreamingModeChanged: (Boolean) -> Unit,
+    councilUserTraits: List<String>,
+    councilUserGoal: String,
+    onAddTrait: (String) -> Unit,
+    onRemoveTrait: (String) -> Unit,
+    onGoalChanged: (String) -> Unit,
+    defaultVoice: String?,
+    onDefaultVoiceChanged: (String?) -> Unit,
+    defaultPersonality: String?,
+    onDefaultPersonalityChanged: (String?) -> Unit,
+    defaultCouncilMembers: List<String>,
+    onDefaultCouncilMembersChanged: (List<String>) -> Unit,
+    apiKey: String?,
+    onApiKeyChanged: (String?) -> Unit,
+    serverUrls: String?,
+    onServerUrlsChanged: (String?) -> Unit
 ) {
     var showSettingsDialog by remember { mutableStateOf(false) }
     
@@ -49,6 +66,21 @@ fun HomeScreen(
         SettingsDialog(
             useStreamingMode = useStreamingMode,
             onStreamingModeChanged = onStreamingModeChanged,
+            councilUserTraits = councilUserTraits,
+            councilUserGoal = councilUserGoal,
+            onAddTrait = onAddTrait,
+            onRemoveTrait = onRemoveTrait,
+            onGoalChanged = onGoalChanged,
+            defaultVoice = defaultVoice,
+            onDefaultVoiceChanged = onDefaultVoiceChanged,
+            defaultPersonality = defaultPersonality,
+            onDefaultPersonalityChanged = onDefaultPersonalityChanged,
+            defaultCouncilMembers = defaultCouncilMembers,
+            onDefaultCouncilMembersChanged = onDefaultCouncilMembersChanged,
+            apiKey = apiKey,
+            onApiKeyChanged = onApiKeyChanged,
+            serverUrls = serverUrls,
+            onServerUrlsChanged = onServerUrlsChanged,
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -94,7 +126,7 @@ fun HomeScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "Start a new conversation or transcript",
+                text = "Start a new session",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -120,6 +152,30 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.size(12.dp))
                 Text(
                     text = "New Conversation",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Button(
+                onClick = onNewCouncil,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Groups,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.size(12.dp))
+                Text(
+                    text = "New Council",
                     style = MaterialTheme.typography.titleMedium
                 )
             }

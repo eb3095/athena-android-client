@@ -39,7 +39,8 @@ data class TranscriptUiState(
     val voices: List<String> = emptyList(),
     val selectedVoice: String? = null,
     val isLoadingVoices: Boolean = false,
-    val initialLoadComplete: Boolean = false
+    val initialLoadComplete: Boolean = false,
+    val pendingMessageId: String? = null
 ) {
     val isVoiceEnabled: Boolean
         get() = selectedVoice != VOICE_NONE
@@ -99,10 +100,115 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 }
                 
+                recoverPendingJobs(transcriptId)
+                
                 repository.getMessagesForConversation(transcriptId).collect { messages ->
                     _uiState.update { it.copy(messages = messages) }
                 }
             }
+        }
+    }
+    
+    private fun recoverPendingJobs(transcriptId: String) {
+        viewModelScope.launch {
+            val pendingMessages = repository.getPendingMessagesForConversation(transcriptId)
+            
+            pendingMessages.forEach { message ->
+                val jobId = message.pendingJobId ?: return@forEach
+                val jobType = message.pendingJobType ?: return@forEach
+                
+                Log.d(TAG, "Recovering pending transcript job: $jobId of type $jobType")
+                
+                _uiState.update { it.copy(isPolling = true, currentJobId = jobId, pendingMessageId = message.id) }
+                
+                if (jobType == "speak") {
+                    recoverSpeakJob(jobId, transcriptId, message.id, message.content)
+                }
+            }
+        }
+    }
+    
+    private suspend fun recoverSpeakJob(jobId: String, transcriptId: String, messageId: String, originalText: String) {
+        val startTime = System.currentTimeMillis()
+        var currentDelay = INITIAL_POLL_DELAY_MS
+        
+        while (System.currentTimeMillis() - startTime < MAX_POLL_TIME_MS) {
+            delay(currentDelay)
+            
+            try {
+                val api = ApiClient.getApi()
+                if (api == null) {
+                    currentDelay = minOf((currentDelay * POLL_BACKOFF_MULTIPLIER).toLong(), MAX_POLL_DELAY_MS)
+                    continue
+                }
+                
+                val status = api.getSpeakJobStatus(jobId)
+                
+                when (status.status) {
+                    "completed" -> {
+                        val audio = status.audio
+                        if (audio.isNullOrBlank()) {
+                            repository.clearPendingJob(messageId)
+                            _uiState.update { 
+                                it.copy(
+                                    isPolling = false,
+                                    currentJobId = null,
+                                    pendingMessageId = null,
+                                    error = "Speech generation completed but no audio returned"
+                                )
+                            }
+                            return
+                        }
+                        
+                        repository.completePendingMessage(
+                            messageId = messageId,
+                            content = originalText,
+                            audioBase64 = audio
+                        )
+                        _uiState.update { it.copy(isPolling = false, currentJobId = null, pendingMessageId = null) }
+                        return
+                    }
+                    "failed" -> {
+                        repository.clearPendingJob(messageId)
+                        _uiState.update { 
+                            it.copy(
+                                isPolling = false,
+                                currentJobId = null,
+                                pendingMessageId = null,
+                                error = status.error ?: "Job failed"
+                            )
+                        }
+                        return
+                    }
+                }
+            } catch (e: HttpException) {
+                if (e.code() == 404) {
+                    repository.clearPendingJob(messageId)
+                    _uiState.update { 
+                        it.copy(
+                            isPolling = false, 
+                            currentJobId = null,
+                            pendingMessageId = null,
+                            error = "Job not found"
+                        )
+                    }
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error recovering speak job $jobId", e)
+            }
+            
+            currentDelay = minOf((currentDelay * POLL_BACKOFF_MULTIPLIER).toLong(), MAX_POLL_DELAY_MS)
+        }
+        
+        repository.clearPendingJob(messageId)
+        _uiState.update { 
+            it.copy(
+                isPolling = false,
+                currentJobId = null,
+                pendingMessageId = null,
+                error = "Job recovery timed out"
+            )
         }
     }
 
@@ -169,15 +275,24 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
                 
                 val submitResponse = api.submitSpeakJob(SpeakRequest(text = formattedText, speakerVoice = voice))
                 
+                val pendingMsgId = repository.addPendingMessage(
+                    conversationId = transcriptId,
+                    role = MessageRole.TRANSCRIPT,
+                    pendingJobId = submitResponse.jobId,
+                    pendingJobType = "speak",
+                    placeholderContent = formattedText
+                )
+                
                 _uiState.update { 
                     it.copy(
                         isLoading = false, 
                         isPolling = true, 
-                        currentJobId = submitResponse.jobId
+                        currentJobId = submitResponse.jobId,
+                        pendingMessageId = pendingMsgId
                     ) 
                 }
                 
-                pollForSpeakCompletion(submitResponse.jobId, transcriptId, formattedText, voice)
+                pollForSpeakCompletion(submitResponse.jobId, transcriptId, formattedText, voice, pendingMsgId)
                 
             } catch (e: CancellationException) {
                 throw e
@@ -216,7 +331,8 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
         jobId: String, 
         transcriptId: String, 
         originalText: String, 
-        voice: String?
+        voice: String?,
+        pendingMessageId: String
     ) {
         var currentDelay = INITIAL_POLL_DELAY_MS
         var consecutiveErrors = 0
@@ -224,10 +340,12 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
         
         while (_uiState.value.isPolling && _uiState.value.currentJobId == jobId) {
             if (System.currentTimeMillis() - startTime > MAX_POLL_TIME_MS) {
+                repository.clearPendingJob(pendingMessageId)
                 _uiState.update { 
                     it.copy(
                         isPolling = false,
                         currentJobId = null,
+                        pendingMessageId = null,
                         error = "Request timed out. Please try again."
                     )
                 }
@@ -245,37 +363,40 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
                     "completed" -> {
                         val audio = status.audio
                         if (audio.isNullOrBlank()) {
+                            repository.clearPendingJob(pendingMessageId)
                             _uiState.update { 
                                 it.copy(
                                     isPolling = false,
                                     currentJobId = null,
+                                    pendingMessageId = null,
                                     error = "Speech generation completed but no audio returned"
                                 )
                             }
                             return
                         }
                         
-                        repository.addMessage(
-                            conversationId = transcriptId,
-                            role = MessageRole.TRANSCRIPT,
+                        repository.completePendingMessage(
+                            messageId = pendingMessageId,
                             content = originalText,
-                            audioBase64 = audio,
-                            voice = status.voice
+                            audioBase64 = audio
                         )
                         
                         _uiState.update { 
                             it.copy(
                                 isPolling = false,
-                                currentJobId = null
+                                currentJobId = null,
+                                pendingMessageId = null
                             )
                         }
                         return
                     }
                     "failed" -> {
+                        repository.clearPendingJob(pendingMessageId)
                         _uiState.update { 
                             it.copy(
                                 isPolling = false,
                                 currentJobId = null,
+                                pendingMessageId = null,
                                 error = status.error ?: "Speech generation failed"
                             )
                         }
@@ -288,19 +409,23 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
                 
             } catch (e: HttpException) {
                 if (e.code() == 404) {
+                    repository.clearPendingJob(pendingMessageId)
                     _uiState.update { 
                         it.copy(
                             isPolling = false,
                             currentJobId = null,
+                            pendingMessageId = null,
                             error = "Request lost. Please try again."
                         )
                     }
                     return
                 } else if (e.code() in 400..499) {
+                    repository.clearPendingJob(pendingMessageId)
                     _uiState.update { 
                         it.copy(
                             isPolling = false,
                             currentJobId = null,
+                            pendingMessageId = null,
                             error = "Request error (${e.code()}). Please try again."
                         )
                     }
@@ -308,10 +433,12 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
                 } else {
                     consecutiveErrors++
                     if (consecutiveErrors >= 5) {
+                        repository.clearPendingJob(pendingMessageId)
                         _uiState.update { 
                             it.copy(
                                 isPolling = false,
                                 currentJobId = null,
+                                pendingMessageId = null,
                                 error = "Server error. Please try again later."
                             )
                         }
@@ -324,10 +451,12 @@ class TranscriptViewModel(application: Application) : AndroidViewModel(applicati
                 consecutiveErrors++
                 Log.e(TAG, "Poll error (consecutive: $consecutiveErrors)", e)
                 if (consecutiveErrors >= 5) {
+                    repository.clearPendingJob(pendingMessageId)
                     _uiState.update { 
                         it.copy(
                             isPolling = false,
                             currentJobId = null,
+                            pendingMessageId = null,
                             error = "Connection error. Please try again."
                         )
                     }

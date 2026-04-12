@@ -5,7 +5,8 @@ import androidx.room.PrimaryKey
 
 enum class ConversationType {
     CONVERSATION,
-    TRANSCRIPT
+    TRANSCRIPT,
+    COUNCIL
 }
 
 @Entity(tableName = "conversations")
@@ -17,5 +18,8 @@ data class ConversationEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val personalityKey: String? = null,
-    val customPersonality: String? = null
+    val customPersonality: String? = null,
+    val councilEnabled: Boolean = false,
+    val selectedCouncilMembers: String? = null,
+    val customCouncilMembers: String? = null
 )

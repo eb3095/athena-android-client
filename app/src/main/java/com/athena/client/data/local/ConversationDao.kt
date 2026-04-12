@@ -68,6 +68,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET personalityKey = :personalityKey, customPersonality = :customPersonality, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateConversationPersonality(id: String, personalityKey: String?, customPersonality: String?, updatedAt: Long)
 
+    @Query("UPDATE conversations SET councilEnabled = :councilEnabled, selectedCouncilMembers = :selectedCouncilMembers, customCouncilMembers = :customCouncilMembers, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateConversationCouncil(id: String, councilEnabled: Boolean, selectedCouncilMembers: String?, customCouncilMembers: String?, updatedAt: Long)
+
     @Transaction
     suspend fun insertConversationWithMessage(conversation: ConversationEntity, message: MessageEntity) {
         insertConversation(conversation)
@@ -79,4 +82,22 @@ interface ConversationDao {
         insertMessage(message)
         updateConversationTimestamp(conversationId, System.currentTimeMillis())
     }
+    
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND pendingJobId IS NOT NULL")
+    suspend fun getPendingMessagesForConversation(conversationId: String): List<MessageEntity>
+    
+    @Query("SELECT * FROM messages WHERE pendingJobId IS NOT NULL")
+    suspend fun getAllPendingMessages(): List<MessageEntity>
+    
+    @Query("UPDATE messages SET content = :content, audioPath = :audioPath, councilDetails = :councilDetails, pendingJobId = NULL, pendingJobType = NULL WHERE id = :messageId")
+    suspend fun completePendingMessage(messageId: String, content: String, audioPath: String?, councilDetails: String?)
+    
+    @Query("UPDATE messages SET content = :content, councilDetails = :councilDetails WHERE id = :messageId")
+    suspend fun updatePendingMessageContent(messageId: String, content: String, councilDetails: String?)
+    
+    @Query("UPDATE messages SET pendingJobId = NULL, pendingJobType = NULL WHERE id = :messageId")
+    suspend fun clearPendingJob(messageId: String)
+    
+    @Update
+    suspend fun updateMessage(message: MessageEntity)
 }

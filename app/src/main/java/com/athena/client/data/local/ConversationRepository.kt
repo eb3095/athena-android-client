@@ -24,7 +24,11 @@ class ConversationRepository(
 
     suspend fun createConversation(
         type: ConversationType,
-        title: String = if (type == ConversationType.CONVERSATION) "New conversation" else "Transcript"
+        title: String = when (type) {
+            ConversationType.CONVERSATION -> "New conversation"
+            ConversationType.TRANSCRIPT -> "Transcript"
+            ConversationType.COUNCIL -> "Council"
+        }
     ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -33,7 +37,8 @@ class ConversationRepository(
             title = title,
             type = type,
             createdAt = now,
-            updatedAt = now
+            updatedAt = now,
+            councilEnabled = type == ConversationType.COUNCIL
         )
         dao.insertConversation(conversation)
         return id
@@ -101,10 +106,7 @@ class ConversationRepository(
     }
 
     suspend fun deleteAllConversationsByType(type: ConversationType) {
-        val conversations = when (type) {
-            ConversationType.CONVERSATION -> dao.getConversationsByTypeSync(type)
-            ConversationType.TRANSCRIPT -> dao.getConversationsByTypeSync(type)
-        }
+        val conversations = dao.getConversationsByTypeSync(type)
         conversations.forEach { conversation ->
             val messages = dao.getMessagesForConversationSync(conversation.id)
             messages.forEach { audioFileManager.deleteAudio(it.audioPath) }
@@ -123,5 +125,97 @@ class ConversationRepository(
             customPersonality,
             System.currentTimeMillis()
         )
+    }
+
+    suspend fun updateConversationCouncil(
+        conversationId: String,
+        councilEnabled: Boolean,
+        selectedCouncilMembers: String?,
+        customCouncilMembers: String?
+    ) {
+        dao.updateConversationCouncil(
+            conversationId,
+            councilEnabled,
+            selectedCouncilMembers,
+            customCouncilMembers,
+            System.currentTimeMillis()
+        )
+    }
+
+    suspend fun addMessageWithCouncilDetails(
+        conversationId: String,
+        role: MessageRole,
+        content: String,
+        audioBase64: String? = null,
+        voice: String? = null,
+        councilDetails: String? = null
+    ): String {
+        val id = UUID.randomUUID().toString()
+        val audioPath = audioBase64?.let { audioFileManager.saveAudio(id, it) }
+        val message = MessageEntity(
+            id = id,
+            conversationId = conversationId,
+            role = role,
+            content = content,
+            audioPath = audioPath,
+            voice = voice,
+            timestamp = System.currentTimeMillis(),
+            councilDetails = councilDetails
+        )
+        dao.addMessageToConversation(conversationId, message)
+        return id
+    }
+    
+    suspend fun addPendingMessage(
+        conversationId: String,
+        role: MessageRole,
+        pendingJobId: String,
+        pendingJobType: String,
+        placeholderContent: String = "..."
+    ): String {
+        val id = UUID.randomUUID().toString()
+        val message = MessageEntity(
+            id = id,
+            conversationId = conversationId,
+            role = role,
+            content = placeholderContent,
+            timestamp = System.currentTimeMillis(),
+            pendingJobId = pendingJobId,
+            pendingJobType = pendingJobType
+        )
+        dao.addMessageToConversation(conversationId, message)
+        return id
+    }
+    
+    suspend fun getPendingMessagesForConversation(conversationId: String): List<MessageEntity> =
+        dao.getPendingMessagesForConversation(conversationId)
+    
+    suspend fun getAllPendingMessages(): List<MessageEntity> =
+        dao.getAllPendingMessages()
+    
+    suspend fun completePendingMessage(
+        messageId: String,
+        content: String,
+        audioBase64: String? = null,
+        councilDetails: String? = null
+    ) {
+        val audioPath = audioBase64?.let { audioFileManager.saveAudio(messageId, it) }
+        dao.completePendingMessage(messageId, content, audioPath, councilDetails)
+    }
+    
+    suspend fun updatePendingMessageContent(
+        messageId: String,
+        content: String,
+        councilDetails: String? = null
+    ) {
+        dao.updatePendingMessageContent(messageId, content, councilDetails)
+    }
+    
+    suspend fun clearPendingJob(messageId: String) {
+        dao.clearPendingJob(messageId)
+    }
+    
+    suspend fun updateMessage(message: MessageEntity) {
+        dao.updateMessage(message)
     }
 }

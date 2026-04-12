@@ -6,41 +6,42 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.athena.client.AthenaApplication
 import com.athena.client.data.ApiClient
-import com.athena.client.data.local.ConversationType
 import com.athena.client.data.local.MessageEntity
 import com.athena.client.data.local.MessageRole
-import com.athena.client.data.local.PersonalityEntity
-import com.athena.client.data.models.ConversationJobRequest
+import com.athena.client.data.models.CouncilJobRequest
+import com.athena.client.data.models.CouncilMemberConfig
+import com.athena.client.data.models.CouncilMemberInfo
+import com.athena.client.data.models.CouncilMemberResponse
+import com.athena.client.data.models.CouncilStreamJobRequest
 import com.athena.client.data.models.ConversationMessage
-import com.athena.client.data.models.ConversationStreamJobRequest
 import com.athena.client.data.models.FormatTextRequest
-import com.athena.client.data.models.Personality
 import com.athena.client.data.models.SummarizeRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import retrofit2.HttpException
-import java.io.IOException
 
-private const val TAG = "ConversationViewModel"
+private const val TAG = "CouncilViewModel"
 
-data class ConversationUiState(
-    val conversationId: String? = null,
-    val title: String = "New conversation",
+data class CouncilUiState(
+    val councilId: String? = null,
+    val title: String = "Council",
     val messages: List<MessageEntity> = emptyList(),
     val isLoading: Boolean = false,
     val isPolling: Boolean = false,
     val currentJobId: String? = null,
-    val isListening: Boolean = false,
     val error: String? = null,
-    val playingMessageId: String? = null,
+    val serverCouncilMembers: List<CouncilMemberInfo> = emptyList(),
+    val selectedCouncilMembers: Set<String> = emptySet(),
+    val customCouncilMembers: List<CouncilMemberConfig> = emptyList(),
+    val isLoadingCouncilMembers: Boolean = false,
     val voices: List<String> = emptyList(),
     val selectedVoice: String? = null,
     val isLoadingVoices: Boolean = false,
@@ -50,30 +51,21 @@ data class ConversationUiState(
     val streamingCombinedAudio: String? = null,
     val streamingComplete: Boolean = false,
     val initialLoadComplete: Boolean = false,
-    val serverPersonalities: List<Personality> = emptyList(),
-    val customPersonalities: List<PersonalityEntity> = emptyList(),
-    val selectedPersonalityKey: String? = null,
-    val customPersonalityPrompt: String? = null,
-    val isLoadingPersonalities: Boolean = false,
-    val defaultVoice: String? = null,
-    val defaultPersonality: String? = null,
     val councilUserTraits: List<String> = emptyList(),
     val councilUserGoal: String = "",
+    val showingCouncilDetails: List<CouncilMemberResponse>? = null,
+    val isListening: Boolean = false,
+    val playingMessageId: String? = null,
+    val defaultVoice: String? = null,
+    val defaultPersonality: String? = null,
     val defaultCouncilMembers: List<String> = emptyList(),
     val apiKey: String? = null,
     val serverUrls: String? = null,
     val isStreamingMuted: Boolean = false,
     val pendingMessageId: String? = null
-) {
-    val isVoiceEnabled: Boolean
-        get() = selectedVoice != VOICE_NONE
-    
-    val allPersonalities: List<Pair<String, String>>
-        get() = serverPersonalities.map { it.key to it.personality } +
-                customPersonalities.map { it.key to it.personality }
-}
+)
 
-class ConversationViewModel(application: Application) : AndroidViewModel(application) {
+class CouncilViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val INITIAL_POLL_DELAY_MS = 1000L
@@ -86,39 +78,18 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
     private val app = application as AthenaApplication
     private val repository = app.conversationRepository
     private val settingsManager = app.settingsManager
-    private val personalityRepository = app.personalityRepository
+    private val json = Json { ignoreUnknownKeys = true }
 
-    private val _uiState = MutableStateFlow(ConversationUiState())
-    val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(CouncilUiState())
+    val uiState: StateFlow<CouncilUiState> = _uiState.asStateFlow()
 
     val isConnected: StateFlow<Boolean> = ApiClient.isConnected
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     init {
         ApiClient.startHealthChecks()
         viewModelScope.launch {
-            settingsManager.useStreamingMode.collect { enabled ->
-                _uiState.update { it.copy(useStreamingMode = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            personalityRepository.customPersonalities.collect { customs ->
-                _uiState.update { it.copy(customPersonalities = customs) }
-            }
-        }
-        viewModelScope.launch {
-            personalityRepository.serverPersonalities.collect { server ->
-                _uiState.update { it.copy(serverPersonalities = server) }
-            }
-        }
-        viewModelScope.launch {
-            settingsManager.defaultVoice.collect { voice ->
-                _uiState.update { it.copy(defaultVoice = voice) }
-            }
-        }
-        viewModelScope.launch {
-            settingsManager.defaultPersonality.collect { personality ->
-                _uiState.update { it.copy(defaultPersonality = personality) }
+            settingsManager.useStreamingMode.collect { streaming ->
+                _uiState.update { it.copy(useStreamingMode = streaming) }
             }
         }
         viewModelScope.launch {
@@ -132,8 +103,28 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
             }
         }
         viewModelScope.launch {
+            settingsManager.defaultVoice.collect { voice ->
+                if (_uiState.value.selectedVoice == null) {
+                    _uiState.update { it.copy(selectedVoice = voice) }
+                }
+            }
+        }
+        viewModelScope.launch {
             settingsManager.defaultCouncilMembers.collect { members ->
+                if (_uiState.value.selectedCouncilMembers.isEmpty() && members.isNotEmpty()) {
+                    _uiState.update { it.copy(selectedCouncilMembers = members.toSet()) }
+                }
                 _uiState.update { it.copy(defaultCouncilMembers = members) }
+            }
+        }
+        viewModelScope.launch {
+            settingsManager.defaultVoice.collect { voice ->
+                _uiState.update { it.copy(defaultVoice = voice) }
+            }
+        }
+        viewModelScope.launch {
+            settingsManager.defaultPersonality.collect { personality ->
+                _uiState.update { it.copy(defaultPersonality = personality) }
             }
         }
         viewModelScope.launch {
@@ -151,39 +142,42 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
     override fun onCleared() {
         super.onCleared()
         ApiClient.stopHealthChecks()
-        _uiState.value.conversationId?.let { conversationId ->
+        _uiState.value.councilId?.let { councilId ->
             kotlinx.coroutines.runBlocking {
-                repository.deleteConversationIfEmpty(conversationId)
+                repository.deleteConversationIfEmpty(councilId)
             }
         }
     }
 
-    fun loadAudio(audioPath: String?): String? {
-        return repository.loadAudio(audioPath)
-    }
-
-    fun loadConversation(conversationId: String) {
+    fun loadCouncil(councilId: String) {
         viewModelScope.launch {
-            val conversation = repository.getConversationById(conversationId)
-            if (conversation != null) {
+            val council = repository.getConversationById(councilId)
+            if (council != null) {
+                val selectedMembers = council.selectedCouncilMembers?.let {
+                    try { json.decodeFromString<List<String>>(it).toSet() } catch (e: Exception) { emptySet() }
+                } ?: emptySet()
+                
+                val customMembers = council.customCouncilMembers?.let {
+                    try { json.decodeFromString<List<CouncilMemberConfig>>(it) } catch (e: Exception) { emptyList() }
+                } ?: emptyList()
+                
                 val defaultVoice = settingsManager.defaultVoice.value
-                val defaultPersonality = settingsManager.defaultPersonality.value
                 
                 _uiState.update { 
                     it.copy(
-                        conversationId = conversationId,
-                        title = conversation.title,
-                        selectedVoice = defaultVoice,
-                        selectedPersonalityKey = conversation.personalityKey ?: defaultPersonality,
-                        customPersonalityPrompt = conversation.customPersonality
+                        councilId = councilId,
+                        title = council.title,
+                        selectedCouncilMembers = selectedMembers,
+                        customCouncilMembers = customMembers,
+                        selectedVoice = defaultVoice
                     )
                 }
                 
-                if (conversation.personalityKey == null && defaultPersonality != null) {
-                    repository.updateConversationPersonality(conversationId, defaultPersonality, null)
+                if (selectedMembers.isEmpty()) {
+                    fetchAndPreselectCouncilMembers(councilId)
                 }
                 
-                val initialMessages = repository.getMessagesForConversation(conversationId).first()
+                val initialMessages = repository.getMessagesForConversation(councilId).first()
                 _uiState.update { 
                     it.copy(
                         messages = initialMessages,
@@ -191,36 +185,36 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                     )
                 }
                 
-                recoverPendingJobs(conversationId)
+                recoverPendingJobs(councilId)
                 
-                repository.getMessagesForConversation(conversationId).collect { messages ->
+                repository.getMessagesForConversation(councilId).collect { messages ->
                     _uiState.update { it.copy(messages = messages) }
                 }
             }
         }
     }
     
-    private fun recoverPendingJobs(conversationId: String) {
+    private fun recoverPendingJobs(councilId: String) {
         viewModelScope.launch {
-            val pendingMessages = repository.getPendingMessagesForConversation(conversationId)
+            val pendingMessages = repository.getPendingMessagesForConversation(councilId)
             
             pendingMessages.forEach { message ->
                 val jobId = message.pendingJobId ?: return@forEach
                 val jobType = message.pendingJobType ?: return@forEach
                 
-                Log.d(TAG, "Recovering pending job: $jobId of type $jobType")
+                Log.d(TAG, "Recovering pending council job: $jobId of type $jobType")
                 
-                _uiState.update { it.copy(isPolling = true, currentJobId = jobId) }
+                _uiState.update { it.copy(isPolling = true, currentJobId = jobId, pendingMessageId = message.id) }
                 
                 when (jobType) {
-                    "conversation_stream" -> recoverConversationStreamJob(jobId, conversationId, message.id)
-                    "conversation" -> recoverConversationJob(jobId, conversationId, message.id)
+                    "council_stream" -> recoverCouncilStreamJob(jobId, councilId, message.id)
+                    "council" -> recoverCouncilJob(jobId, councilId, message.id)
                 }
             }
         }
     }
     
-    private suspend fun recoverConversationJob(jobId: String, conversationId: String, messageId: String) {
+    private suspend fun recoverCouncilJob(jobId: String, councilId: String, messageId: String) {
         val startTime = System.currentTimeMillis()
         var currentDelay = INITIAL_POLL_DELAY_MS
         
@@ -234,16 +228,20 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                     continue
                 }
                 
-                val status = api.getConversationJobStatus(jobId)
+                val status = api.getCouncilJobStatus(jobId)
                 
                 when (status.status) {
                     "completed" -> {
+                        val councilDetailsJson = status.memberResponses?.let { 
+                            json.encodeToString(it) 
+                        }
                         repository.completePendingMessage(
                             messageId = messageId,
-                            content = status.response ?: "",
-                            audioBase64 = status.audio
+                            content = status.advisorResponse ?: "",
+                            audioBase64 = status.audio,
+                            councilDetails = councilDetailsJson
                         )
-                        _uiState.update { it.copy(isPolling = false, currentJobId = null) }
+                        _uiState.update { it.copy(isPolling = false, currentJobId = null, pendingMessageId = null) }
                         return
                     }
                     "failed" -> {
@@ -252,6 +250,7 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                             it.copy(
                                 isPolling = false,
                                 currentJobId = null,
+                                pendingMessageId = null,
                                 error = status.error ?: "Job failed"
                             )
                         }
@@ -265,13 +264,14 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         it.copy(
                             isPolling = false, 
                             currentJobId = null,
+                            pendingMessageId = null,
                             error = "Job not found"
                         )
                     }
                     return
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error recovering job $jobId", e)
+                Log.e(TAG, "Error recovering council job $jobId", e)
             }
             
             currentDelay = minOf((currentDelay * POLL_BACKOFF_MULTIPLIER).toLong(), MAX_POLL_DELAY_MS)
@@ -282,14 +282,16 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
             it.copy(
                 isPolling = false,
                 currentJobId = null,
+                pendingMessageId = null,
                 error = "Job recovery timed out"
             )
         }
     }
     
-    private suspend fun recoverConversationStreamJob(jobId: String, conversationId: String, messageId: String) {
+    private suspend fun recoverCouncilStreamJob(jobId: String, councilId: String, messageId: String) {
         val startTime = System.currentTimeMillis()
         var currentDelay = INITIAL_POLL_DELAY_MS
+        var messageUpdated = false
         
         while (System.currentTimeMillis() - startTime < MAX_POLL_TIME_MS) {
             delay(currentDelay)
@@ -301,28 +303,68 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                     continue
                 }
                 
-                val status = api.getConversationStreamJobStatus(jobId)
+                val status = api.getCouncilStreamJobStatus(jobId)
                 
                 when (status.status) {
                     "completed" -> {
-                        repository.completePendingMessage(
-                            messageId = messageId,
-                            content = status.response ?: "",
-                            audioBase64 = status.combinedAudio
-                        )
-                        _uiState.update { it.copy(isPolling = false, currentJobId = null) }
+                        val councilDetailsJson = status.memberResponses?.let { 
+                            json.encodeToString(it) 
+                        }
+                        
+                        if (!messageUpdated) {
+                            repository.completePendingMessage(
+                                messageId = messageId,
+                                content = status.advisorResponse ?: "",
+                                audioBase64 = status.combinedAudio,
+                                councilDetails = councilDetailsJson
+                            )
+                        } else if (status.combinedAudio != null) {
+                            repository.updateMessageAudio(
+                                messageId,
+                                councilId,
+                                audioBase64 = status.combinedAudio,
+                                voice = status.voice
+                            )
+                        }
+                        
+                        _uiState.update { 
+                            it.copy(
+                                isPolling = false, 
+                                currentJobId = null, 
+                                pendingMessageId = null,
+                                streamingMessageId = null
+                            ) 
+                        }
                         return
                     }
                     "failed" -> {
-                        repository.clearPendingJob(messageId)
+                        if (!messageUpdated) {
+                            repository.clearPendingJob(messageId)
+                        }
                         _uiState.update { 
                             it.copy(
                                 isPolling = false,
                                 currentJobId = null,
+                                pendingMessageId = null,
+                                streamingMessageId = null,
                                 error = status.error ?: "Job failed"
                             )
                         }
                         return
+                    }
+                    else -> {
+                        if (!messageUpdated && status.advisorResponse != null) {
+                            val councilDetailsJson = status.memberResponses?.let { 
+                                json.encodeToString(it) 
+                            }
+                            repository.completePendingMessage(
+                                messageId = messageId,
+                                content = status.advisorResponse,
+                                audioBase64 = null,
+                                councilDetails = councilDetailsJson
+                            )
+                            messageUpdated = true
+                        }
                     }
                 }
             } catch (e: HttpException) {
@@ -332,13 +374,15 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         it.copy(
                             isPolling = false, 
                             currentJobId = null,
+                            pendingMessageId = null,
+                            streamingMessageId = null,
                             error = "Job not found"
                         )
                     }
                     return
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error recovering stream job $jobId", e)
+                Log.e(TAG, "Error recovering council stream job $jobId", e)
             }
             
             currentDelay = minOf((currentDelay * POLL_BACKOFF_MULTIPLIER).toLong(), MAX_POLL_DELAY_MS)
@@ -349,17 +393,85 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
             it.copy(
                 isPolling = false,
                 currentJobId = null,
+                pendingMessageId = null,
+                streamingMessageId = null,
                 error = "Job recovery timed out"
             )
         }
     }
 
-    suspend fun createConversation(): String {
-        return repository.createConversation(ConversationType.CONVERSATION)
+    private suspend fun fetchAndPreselectCouncilMembers(councilId: String) {
+        _uiState.update { it.copy(isLoadingCouncilMembers = true) }
+        
+        try {
+            val api = ApiClient.getApi()
+            if (api == null) {
+                Log.w(TAG, "No healthy server available for fetching council members")
+                _uiState.update { it.copy(isLoadingCouncilMembers = false) }
+                return
+            }
+            
+            val response = api.getCouncilMembers()
+            val members = response.members
+            
+            val defaultMembers = settingsManager.defaultCouncilMembers.value
+            val selectedMembers = if (defaultMembers.isNotEmpty()) {
+                defaultMembers.filter { name -> members.any { it.name == name } }.toSet()
+                    .ifEmpty { members.map { it.name }.toSet() }
+            } else {
+                members.map { it.name }.toSet()
+            }
+            
+            _uiState.update { 
+                it.copy(
+                    serverCouncilMembers = members,
+                    selectedCouncilMembers = selectedMembers,
+                    isLoadingCouncilMembers = false
+                )
+            }
+            
+            val selectedJson = json.encodeToString(selectedMembers.toList())
+            repository.updateConversationCouncil(councilId, true, selectedJson, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch council members", e)
+            _uiState.update { it.copy(isLoadingCouncilMembers = false) }
+        }
     }
 
-    fun setListening(listening: Boolean) {
-        _uiState.update { it.copy(isListening = listening) }
+    fun fetchCouncilMembers() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingCouncilMembers = true) }
+            
+            try {
+                val api = ApiClient.getApi()
+                if (api == null) {
+                    Log.w(TAG, "No healthy server available for fetching council members")
+                    _uiState.update { it.copy(isLoadingCouncilMembers = false) }
+                    return@launch
+                }
+                val response = api.getCouncilMembers()
+                
+                val currentSelected = _uiState.value.selectedCouncilMembers
+                val newSelected = if (currentSelected.isEmpty()) {
+                    response.members.map { it.name }.toSet()
+                } else {
+                    currentSelected
+                }
+                
+                _uiState.update { 
+                    it.copy(
+                        serverCouncilMembers = response.members,
+                        selectedCouncilMembers = newSelected,
+                        isLoadingCouncilMembers = false
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch council members", e)
+                _uiState.update { it.copy(isLoadingCouncilMembers = false) }
+            }
+        }
     }
 
     fun fetchVoices() {
@@ -369,14 +481,27 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
             try {
                 val api = ApiClient.getApi()
                 if (api == null) {
-                    Log.w(TAG, "No healthy server available for fetching voices")
                     _uiState.update { it.copy(isLoadingVoices = false) }
                     return@launch
                 }
+                
                 val response = api.getVoices()
-                _uiState.update { it.copy(voices = response.voices, isLoadingVoices = false) }
-            } catch (e: CancellationException) {
-                throw e
+                val defaultVoice = settingsManager.defaultVoice.value
+                val currentVoice = _uiState.value.selectedVoice
+                
+                val selected = when {
+                    currentVoice != null && (currentVoice == VOICE_NONE || response.voices.contains(currentVoice)) -> currentVoice
+                    defaultVoice != null && response.voices.contains(defaultVoice) -> defaultVoice
+                    else -> null
+                }
+                
+                _uiState.update { 
+                    it.copy(
+                        voices = response.voices,
+                        selectedVoice = selected,
+                        isLoadingVoices = false
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch voices", e)
                 _uiState.update { it.copy(isLoadingVoices = false) }
@@ -384,20 +509,91 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun toggleCouncilMember(name: String, selected: Boolean) {
+        val councilId = _uiState.value.councilId ?: return
+        
+        val newSelected = if (selected) {
+            _uiState.value.selectedCouncilMembers + name
+        } else {
+            _uiState.value.selectedCouncilMembers - name
+        }
+        
+        _uiState.update { it.copy(selectedCouncilMembers = newSelected) }
+        
+        viewModelScope.launch {
+            val selectedJson = json.encodeToString(newSelected.toList())
+            val customJson = json.encodeToString(_uiState.value.customCouncilMembers)
+            repository.updateConversationCouncil(councilId, true, selectedJson, customJson)
+        }
+    }
+
+    fun addCustomCouncilMember(name: String, prompt: String) {
+        val councilId = _uiState.value.councilId ?: return
+        
+        val newMember = CouncilMemberConfig(name = name, prompt = prompt)
+        val newCustomMembers = _uiState.value.customCouncilMembers + newMember
+        val newSelected = _uiState.value.selectedCouncilMembers + name
+        
+        _uiState.update { 
+            it.copy(
+                customCouncilMembers = newCustomMembers,
+                selectedCouncilMembers = newSelected
+            )
+        }
+        
+        viewModelScope.launch {
+            val selectedJson = json.encodeToString(newSelected.toList())
+            val customJson = json.encodeToString(newCustomMembers)
+            repository.updateConversationCouncil(councilId, true, selectedJson, customJson)
+        }
+    }
+
+    fun deleteCustomCouncilMember(name: String) {
+        val councilId = _uiState.value.councilId ?: return
+        
+        val newCustomMembers = _uiState.value.customCouncilMembers.filter { it.name != name }
+        val newSelected = _uiState.value.selectedCouncilMembers - name
+        
+        _uiState.update { 
+            it.copy(
+                customCouncilMembers = newCustomMembers,
+                selectedCouncilMembers = newSelected
+            )
+        }
+        
+        viewModelScope.launch {
+            val selectedJson = json.encodeToString(newSelected.toList())
+            val customJson = json.encodeToString(newCustomMembers)
+            repository.updateConversationCouncil(councilId, true, selectedJson, customJson)
+        }
+    }
+
     fun setSelectedVoice(voice: String?) {
         _uiState.update { it.copy(selectedVoice = voice) }
     }
 
+    fun setListening(listening: Boolean) {
+        _uiState.update { it.copy(isListening = listening) }
+    }
+
+    fun setPlayingMessage(messageId: String?) {
+        _uiState.update { it.copy(playingMessageId = messageId) }
+    }
+
+    fun showCouncilDetails(memberResponses: List<CouncilMemberResponse>) {
+        _uiState.update { it.copy(showingCouncilDetails = memberResponses) }
+    }
+
+    fun hideCouncilDetails() {
+        _uiState.update { it.copy(showingCouncilDetails = null) }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+    
     fun setStreamingMode(enabled: Boolean) {
         settingsManager.setUseStreamingMode(enabled)
-    }
-    
-    fun setDefaultVoice(voice: String?) {
-        settingsManager.setDefaultVoice(voice)
-    }
-    
-    fun setDefaultPersonality(personality: String?) {
-        settingsManager.setDefaultPersonality(personality)
     }
     
     fun addCouncilUserTrait(trait: String) {
@@ -410,6 +606,14 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
     
     fun setCouncilUserGoal(goal: String) {
         settingsManager.setCouncilUserGoal(goal)
+    }
+    
+    fun setDefaultVoice(voice: String?) {
+        settingsManager.setDefaultVoice(voice)
+    }
+    
+    fun setDefaultPersonality(personality: String?) {
+        settingsManager.setDefaultPersonality(personality)
     }
     
     fun setDefaultCouncilMembers(members: List<String>) {
@@ -432,63 +636,33 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
         _uiState.update { it.copy(isStreamingMuted = muted) }
     }
 
-    fun fetchPersonalities() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingPersonalities = true) }
-            
+    fun getCouncilDetailsForMessage(message: MessageEntity): List<CouncilMemberResponse>? {
+        return message.councilDetails?.let {
             try {
-                personalityRepository.fetchServerPersonalities()
-                _uiState.update { it.copy(isLoadingPersonalities = false) }
-            } catch (e: CancellationException) {
-                throw e
+                json.decodeFromString<List<CouncilMemberResponse>>(it)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch personalities", e)
-                _uiState.update { it.copy(isLoadingPersonalities = false) }
-            }
-        }
-    }
-
-    fun setSelectedPersonality(key: String?, customPrompt: String? = null) {
-        val conversationId = _uiState.value.conversationId ?: return
-        
-        _uiState.update { 
-            it.copy(
-                selectedPersonalityKey = key,
-                customPersonalityPrompt = customPrompt
-            )
-        }
-        
-        viewModelScope.launch {
-            repository.updateConversationPersonality(conversationId, key, customPrompt)
-        }
-    }
-
-    fun addCustomPersonality(key: String, personality: String) {
-        viewModelScope.launch {
-            personalityRepository.addCustomPersonality(key, personality)
-        }
-    }
-
-    fun deleteCustomPersonality(key: String) {
-        viewModelScope.launch {
-            personalityRepository.deleteCustomPersonality(key)
-            if (_uiState.value.selectedPersonalityKey == key) {
-                setSelectedPersonality(null)
+                null
             }
         }
     }
 
     fun sendMessage(rawText: String, fromVoice: Boolean = false) {
         if (rawText.isBlank()) return
-        val conversationId = _uiState.value.conversationId ?: return
+        val councilId = _uiState.value.councilId ?: return
         
+        val selectedMembers = _uiState.value.selectedCouncilMembers.toList()
+        if (selectedMembers.isEmpty()) {
+            _uiState.update { it.copy(error = "Please select at least one council member") }
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            
+
             try {
                 val api = ApiClient.getApiOrThrow()
                 
-                val formattedText = if (fromVoice) {
+                val messageText = if (fromVoice) {
                     try {
                         val formatResponse = api.formatText(FormatTextRequest(text = rawText))
                         formatResponse.formattedText
@@ -499,24 +673,24 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                 } else {
                     rawText
                 }
-                
+
                 repository.addMessage(
-                    conversationId = conversationId,
+                    conversationId = councilId,
                     role = MessageRole.USER,
-                    content = formattedText
+                    content = messageText
                 )
-                
-                if (_uiState.value.title == "New conversation") {
+
+                if (_uiState.value.title == "Council") {
                     try {
-                        val summaryResponse = api.summarize(SummarizeRequest(text = formattedText))
-                        repository.updateConversationTitle(conversationId, summaryResponse.summary)
+                        val summaryResponse = api.summarize(SummarizeRequest(text = messageText))
+                        repository.updateConversationTitle(councilId, summaryResponse.summary)
                         _uiState.update { it.copy(title = summaryResponse.summary) }
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to generate title", e)
                     }
                 }
-                
-                val allMessages = repository.getMessagesForConversationSync(conversationId)
+
+                val allMessages = repository.getMessagesForConversationSync(councilId)
                 val contextMessages = allMessages
                     .filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
                     .takeLast(MAX_CONTEXT_MESSAGES)
@@ -524,30 +698,37 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         role = if (it.role == MessageRole.USER) "user" else "assistant",
                         content = it.content
                     )}
-                
+
                 val currentVoice = _uiState.value.selectedVoice
                 val useVoice = currentVoice != VOICE_NONE
                 val useStreaming = _uiState.value.useStreamingMode
-                val personalityKey = _uiState.value.selectedPersonalityKey
-                val customPersonality = _uiState.value.customPersonalityPrompt
-                
+                val councilUserTraits = _uiState.value.councilUserTraits
+                val councilUserGoal = _uiState.value.councilUserGoal
+                val customMembers = _uiState.value.customCouncilMembers
+                val serverMemberNames = _uiState.value.serverCouncilMembers.map { it.name }
+
+                val serverMembersToUse = selectedMembers.filter { it in serverMemberNames }.ifEmpty { null }
+                val customMembersToUse = customMembers.filter { it.name in selectedMembers }.ifEmpty { null }
+
                 if (useVoice && useStreaming) {
-                    Log.d(TAG, "Submitting conversation stream job")
+                    Log.d(TAG, "Submitting council stream job")
                     
-                    val submitResponse = api.submitConversationStreamJob(
-                        ConversationStreamJobRequest(
+                    val submitResponse = api.submitCouncilStreamJob(
+                        CouncilStreamJobRequest(
                             messages = contextMessages,
-                            speakerVoice = if (currentVoice != null) currentVoice else null,
-                            personality = personalityKey,
-                            personalityCustom = customPersonality
+                            speakerVoice = if (currentVoice == VOICE_NONE) null else currentVoice,
+                            councilMembers = serverMembersToUse,
+                            customMembers = customMembersToUse,
+                            userTraits = councilUserTraits.ifEmpty { null },
+                            userGoal = councilUserGoal.ifBlank { null }
                         )
                     )
                     
                     val pendingMsgId = repository.addPendingMessage(
-                        conversationId = conversationId,
+                        conversationId = councilId,
                         role = MessageRole.ASSISTANT,
                         pendingJobId = submitResponse.jobId,
-                        pendingJobType = "conversation_stream"
+                        pendingJobType = "council_stream"
                     )
                     
                     _uiState.update { 
@@ -559,25 +740,26 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         ) 
                     }
                     
-                    pollForConversationStreamCompletion(submitResponse.jobId, conversationId, pendingMsgId)
+                    pollForCouncilStreamCompletion(submitResponse.jobId, councilId, pendingMsgId)
                 } else {
-                    Log.d(TAG, "Submitting conversation job: speaker=$useVoice")
+                    Log.d(TAG, "Submitting council job")
                     
-                    val submitResponse = api.submitConversationJob(
-                        ConversationJobRequest(
+                    val submitResponse = api.submitCouncilJob(
+                        CouncilJobRequest(
                             messages = contextMessages,
-                            speaker = useVoice,
-                            speakerVoice = if (useVoice && currentVoice != null) currentVoice else null,
-                            personality = personalityKey,
-                            personalityCustom = customPersonality
+                            speakerVoice = if (useVoice) currentVoice else null,
+                            councilMembers = serverMembersToUse,
+                            customMembers = customMembersToUse,
+                            userTraits = councilUserTraits.ifEmpty { null },
+                            userGoal = councilUserGoal.ifBlank { null }
                         )
                     )
                     
                     val pendingMsgId = repository.addPendingMessage(
-                        conversationId = conversationId,
+                        conversationId = councilId,
                         role = MessageRole.ASSISTANT,
                         pendingJobId = submitResponse.jobId,
-                        pendingJobType = "conversation"
+                        pendingJobType = "council"
                     )
                     
                     _uiState.update { 
@@ -589,46 +771,23 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         ) 
                     }
                     
-                    pollForConversationCompletion(submitResponse.jobId, conversationId, pendingMsgId)
+                    pollForCouncilCompletion(submitResponse.jobId, councilId, pendingMsgId)
                 }
-                
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: IllegalStateException) {
-                Log.w(TAG, "No healthy server available")
-                _uiState.update { 
-                    it.copy(
-                        isLoading = false,
-                        isPolling = false,
-                        error = "No server available. Please wait for connection."
-                    )
-                }
-            } catch (e: IOException) {
-                Log.e(TAG, "Connection error", e)
-                _uiState.update { 
-                    it.copy(
-                        isLoading = false,
-                        isPolling = false,
-                        error = "Connection error. Please check your network."
-                    )
-                }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send message", e)
+                Log.e(TAG, "Failed to submit council job", e)
                 _uiState.update { 
-                    it.copy(
-                        isLoading = false,
-                        isPolling = false,
-                        error = "Failed to send message. Please try again."
-                    )
+                    it.copy(isLoading = false, error = "Failed to submit: ${e.message}")
                 }
             }
         }
     }
 
-    private suspend fun pollForConversationCompletion(jobId: String, conversationId: String, pendingMessageId: String) {
+    private suspend fun pollForCouncilCompletion(jobId: String, councilId: String, pendingMessageId: String) {
         var currentDelay = INITIAL_POLL_DELAY_MS
         val startTime = System.currentTimeMillis()
-        
+
         while (_uiState.value.isPolling && _uiState.value.currentJobId == jobId) {
             if (System.currentTimeMillis() - startTime > MAX_POLL_TIME_MS) {
                 repository.clearPendingJob(pendingMessageId)
@@ -642,19 +801,24 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                 }
                 return
             }
-            
+
             delay(currentDelay)
-            
+
             try {
                 val api = ApiClient.getApi() ?: continue
-                val status = api.getConversationJobStatus(jobId)
-                
+                val status = api.getCouncilJobStatus(jobId)
+
                 when (status.status) {
                     "completed" -> {
+                        val councilDetailsJson = status.memberResponses?.let { 
+                            json.encodeToString(it) 
+                        }
+                        
                         repository.completePendingMessage(
                             messageId = pendingMessageId,
-                            content = status.response ?: "",
-                            audioBase64 = status.audio
+                            content = status.advisorResponse ?: "",
+                            audioBase64 = status.audio,
+                            councilDetails = councilDetailsJson
                         )
                         
                         _uiState.update { 
@@ -673,7 +837,7 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                                 isPolling = false,
                                 currentJobId = null,
                                 pendingMessageId = null,
-                                error = status.error ?: "Request failed"
+                                error = status.error ?: "Job failed"
                             )
                         }
                         return
@@ -682,7 +846,6 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                 
                 currentDelay = (currentDelay * POLL_BACKOFF_MULTIPLIER).toLong()
                     .coerceAtMost(MAX_POLL_DELAY_MS)
-                
             } catch (e: HttpException) {
                 if (e.code() == 404) {
                     repository.clearPendingJob(pendingMessageId)
@@ -699,16 +862,16 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Poll error", e)
+                Log.e(TAG, "Error polling for status", e)
             }
         }
     }
 
-    private suspend fun pollForConversationStreamCompletion(jobId: String, conversationId: String, pendingMessageId: String) {
+    private suspend fun pollForCouncilStreamCompletion(jobId: String, councilId: String, pendingMessageId: String) {
         var currentDelay = INITIAL_POLL_DELAY_MS
         val startTime = System.currentTimeMillis()
         var messageUpdated = false
-        
+
         while (_uiState.value.isPolling && _uiState.value.currentJobId == jobId) {
             if (System.currentTimeMillis() - startTime > MAX_POLL_TIME_MS) {
                 repository.clearPendingJob(pendingMessageId)
@@ -723,13 +886,13 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                 }
                 return
             }
-            
+
             delay(currentDelay)
-            
+
             try {
                 val api = ApiClient.getApi() ?: continue
-                val status = api.getConversationStreamJobStatus(jobId)
-                
+                val status = api.getCouncilStreamJobStatus(jobId)
+
                 val sentenceAudios = status.sentences.map { s ->
                     SentenceAudioItem(
                         index = s.index,
@@ -738,15 +901,20 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         status = s.status
                     )
                 }
-                
+
                 val hasFirstSentenceAudio = sentenceAudios.any { 
                     it.index == 0 && it.status == "completed" && it.audio != null 
                 }
-                
-                if (!messageUpdated && status.response != null && hasFirstSentenceAudio) {
+
+                if (!messageUpdated && status.advisorResponse != null && hasFirstSentenceAudio) {
+                    val councilDetailsJson = status.memberResponses?.let { 
+                        json.encodeToString(it) 
+                    }
+                    
                     repository.updatePendingMessageContent(
                         messageId = pendingMessageId,
-                        content = status.response
+                        content = status.advisorResponse,
+                        councilDetails = councilDetailsJson
                     )
                     messageUpdated = true
                     
@@ -766,14 +934,14 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                         )
                     }
                 }
-                
+
                 when (status.status) {
                     "completed" -> {
                         repository.clearPendingJob(pendingMessageId)
                         if (status.combinedAudio != null) {
                             repository.updateMessageAudio(
                                 pendingMessageId, 
-                                conversationId, 
+                                councilId, 
                                 audioBase64 = status.combinedAudio, 
                                 voice = status.voice
                             )
@@ -807,7 +975,6 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
                 
                 currentDelay = (currentDelay * POLL_BACKOFF_MULTIPLIER).toLong()
                     .coerceAtMost(MAX_POLL_DELAY_MS)
-                
             } catch (e: HttpException) {
                 if (e.code() == 404) {
                     repository.clearPendingJob(pendingMessageId)
@@ -830,10 +997,6 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    fun setPlayingMessage(messageId: String?) {
-        _uiState.update { it.copy(playingMessageId = messageId) }
-    }
-
     fun clearStreamingState() {
         _uiState.update { 
             it.copy(
@@ -846,7 +1009,7 @@ class ConversationViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    fun clearError() {
-        _uiState.update { it.copy(error = null) }
+    fun loadAudio(audioPath: String?): String? {
+        return repository.loadAudio(audioPath)
     }
 }

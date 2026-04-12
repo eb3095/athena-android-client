@@ -16,9 +16,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +39,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -76,6 +82,7 @@ import com.athena.client.speech.SpeechRecognizerManager
 import com.athena.client.ui.components.MicButton
 import com.athena.client.ui.components.PersonalitySelector
 import com.athena.client.ui.components.SettingsDialog
+import com.athena.client.ui.components.SwipeableInputBar
 import com.athena.client.ui.components.ThinkingIndicator
 import com.athena.client.ui.components.VoiceSelector
 import com.athena.client.viewmodel.ConversationViewModel
@@ -165,11 +172,12 @@ fun ConversationScreen(
     val audioPlayer = remember { AudioPlayer() }
     var speechAvailable by remember { mutableStateOf(true) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var isTextMode by remember { mutableStateOf(false) }
 
     val speechRecognizer = remember {
         SpeechRecognizerManager(
             context = context,
-            onResult = { result -> viewModel.sendMessage(result) },
+            onResult = { result -> viewModel.sendMessage(result, fromVoice = true) },
             onPartialResult = {},
             onError = { viewModel.setListening(false) },
             onListeningStateChanged = { listening -> viewModel.setListening(listening) }
@@ -194,7 +202,15 @@ fun ConversationScreen(
     var nextSentenceToPlay by remember { mutableIntStateOf(0) }
     var isPlayingStreamingSentence by remember { mutableStateOf(false) }
 
-    LaunchedEffect(uiState.streamingMessageId, uiState.streamingSentences, isPlayingStreamingSentence) {
+    LaunchedEffect(uiState.isStreamingMuted) {
+        if (uiState.isStreamingMuted && isPlayingStreamingSentence) {
+            audioPlayer.stop()
+            isPlayingStreamingSentence = false
+            viewModel.setPlayingMessage(null)
+        }
+    }
+    
+    LaunchedEffect(uiState.streamingMessageId, uiState.streamingSentences, isPlayingStreamingSentence, uiState.isStreamingMuted) {
         val streamingId = uiState.streamingMessageId
         if (streamingId != null) {
             if (currentStreamingMessageId != streamingId) {
@@ -202,7 +218,7 @@ fun ConversationScreen(
                 nextSentenceToPlay = 0
             }
 
-            if (!isPlayingStreamingSentence) {
+            if (!isPlayingStreamingSentence && !uiState.isStreamingMuted) {
                 val completedSentences = uiState.streamingSentences.filter { 
                     it.status == "completed" && it.audio != null 
                 }
@@ -228,11 +244,12 @@ fun ConversationScreen(
         }
     }
     
-    LaunchedEffect(uiState.streamingComplete, nextSentenceToPlay, isPlayingStreamingSentence) {
-        if (uiState.streamingComplete && 
-            !isPlayingStreamingSentence && 
-            nextSentenceToPlay >= uiState.streamingSentences.size &&
-            currentStreamingMessageId != null) {
+    LaunchedEffect(uiState.streamingComplete, nextSentenceToPlay, isPlayingStreamingSentence, uiState.isStreamingMuted) {
+        val shouldClear = uiState.streamingComplete && currentStreamingMessageId != null && (
+            (uiState.isStreamingMuted && !isPlayingStreamingSentence) ||
+            (!isPlayingStreamingSentence && nextSentenceToPlay >= uiState.streamingSentences.size)
+        )
+        if (shouldClear) {
             viewModel.setPlayingMessage(null)
             viewModel.clearStreamingState()
             currentStreamingMessageId = null
@@ -274,6 +291,21 @@ fun ConversationScreen(
         SettingsDialog(
             useStreamingMode = uiState.useStreamingMode,
             onStreamingModeChanged = { viewModel.setStreamingMode(it) },
+            councilUserTraits = uiState.councilUserTraits,
+            councilUserGoal = uiState.councilUserGoal,
+            onAddTrait = { viewModel.addCouncilUserTrait(it) },
+            onRemoveTrait = { viewModel.removeCouncilUserTrait(it) },
+            onGoalChanged = { viewModel.setCouncilUserGoal(it) },
+            defaultVoice = uiState.defaultVoice,
+            onDefaultVoiceChanged = { viewModel.setDefaultVoice(it) },
+            defaultPersonality = uiState.defaultPersonality,
+            onDefaultPersonalityChanged = { viewModel.setDefaultPersonality(it) },
+            defaultCouncilMembers = uiState.defaultCouncilMembers,
+            onDefaultCouncilMembersChanged = { viewModel.setDefaultCouncilMembers(it) },
+            apiKey = uiState.apiKey,
+            onApiKeyChanged = { viewModel.setApiKey(it) },
+            serverUrls = uiState.serverUrls,
+            onServerUrlsChanged = { viewModel.setServerUrls(it) },
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -319,7 +351,8 @@ fun ConversationScreen(
                 )
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -352,12 +385,13 @@ fun ConversationScreen(
                 }
             }
 
+            val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 100.dp),
-                contentPadding = PaddingValues(16.dp),
+                    .padding(bottom = navBarPadding + 100.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uiState.messages, key = { it.id }) { message ->
@@ -403,8 +437,7 @@ fun ConversationScreen(
 
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp),
+                    .align(Alignment.BottomCenter),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 androidx.compose.animation.AnimatedVisibility(
@@ -425,7 +458,7 @@ fun ConversationScreen(
                         }
                         Row(
                             modifier = Modifier
-                                .padding(bottom = 16.dp)
+                                .padding(bottom = 8.dp)
                                 .background(
                                     color = MaterialTheme.colorScheme.error,
                                     shape = MaterialTheme.shapes.medium
@@ -461,7 +494,7 @@ fun ConversationScreen(
                 if (!isConnected) {
                     Row(
                         modifier = Modifier
-                            .padding(bottom = 16.dp)
+                            .padding(bottom = 8.dp)
                             .background(
                                 color = MaterialTheme.colorScheme.errorContainer,
                                 shape = MaterialTheme.shapes.medium
@@ -489,8 +522,45 @@ fun ConversationScreen(
                         )
                     }
                 }
+                
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = uiState.streamingMessageId != null,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(bottom = 8.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            .clickable { viewModel.toggleStreamingMute() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.isStreamingMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                            contentDescription = if (uiState.isStreamingMuted) "Unmute" else "Mute",
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (uiState.isStreamingMuted) "Audio muted" else "Tap to mute",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                SwipeableInputBar(
+                    isTextMode = isTextMode,
+                    onTextModeChange = { isTextMode = it },
+                    onSend = { text -> viewModel.sendMessage(text) },
+                    placeholder = "Type a message...",
+                    enabled = isConnected && !showProgress
+                ) {
                     PersonalitySelector(
                         selectedPersonalityKey = uiState.selectedPersonalityKey,
                         serverPersonalities = uiState.serverPersonalities,

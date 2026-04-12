@@ -9,18 +9,22 @@ A minimalistic Android voice assistant client for Athena. Speak to the app, and 
 ## Features
 
 - **Conversations** - Multi-turn AI conversations with context persistence
+- **Council Mode** - Multi-advisor AI consultation with multiple perspectives synthesized into one response
 - **Personalities** - Select AI personality per conversation (pirate, nerdy, professional, etc.) or create custom ones
 - **Transcripts** - Convert spoken or typed text to audio in selected voice
-- **Persistent Storage** - All conversations and transcripts saved locally (Room database)
+- **Persistent Storage** - All conversations, councils, and transcripts saved locally (Room database)
+- **Job Recovery** - Automatically resumes interrupted requests when app restarts
 - **Voice Input** - Speak prompts via Android SpeechRecognizer
 - **Voice Selection** - Dropdown to select TTS voice (queries server for available voices)
 - **Streaming Mode** - Sentence-by-sentence audio playback for faster perceived response
+- **Mute Streaming** - Stop audio playback mid-stream while job completes in background
 - **AI Text Formatting** - Spoken prompts are cleaned up with proper punctuation
 - **Smart Titles** - AI-generated titles for conversations based on initial prompt
 - **Navigation Drawer** - Slide-out menu to manage and switch between conversations
 - **Markdown Rendering** - AI responses displayed with formatting
 - **Audio Playback** - Auto-plays TTS audio, with replay button
-- **Settings Menu** - Configure streaming mode and other preferences
+- **Settings Menu** - Configure defaults, streaming mode, API credentials, and preferences
+- **Runtime Configuration** - API key and server URLs configurable in settings (no rebuild required)
 - **Async Job Polling** - Uses job-based API for reliable long-running requests
 - **Multi-Server Support** - Continuous health monitoring with automatic failover
 - **Connection Status** - Visual indicator with automatic retry
@@ -43,16 +47,22 @@ cd athena-android-client
 
 ### 2. Configure API credentials
 
-Create a `local.properties` file in the project root with your Athena server details:
+**Option A: Build-time configuration (optional)**
+
+Create a `local.properties` file in the project root:
 
 ```properties
 api.servers=https://your-athena-server.com,http://fallback-server.local
 api.token=your-auth-token
 ```
 
+**Option B: Runtime configuration**
+
+Leave `local.properties` empty or skip it entirely. Configure API credentials in the app's Settings screen after installation.
+
 Multiple servers can be specified as a comma-separated list. The app continuously polls all servers' `/health` endpoints every 5 seconds and selects the first healthy server when making requests.
 
-> **Security Note**: The `local.properties` file is gitignored and should never be committed. The API credentials are baked into the APK at build time. This approach is suitable for personal use only.
+> **Note**: Runtime configuration takes precedence over build-time configuration. The `local.properties` file is gitignored and should never be committed.
 
 ### 3. Build the app
 
@@ -117,6 +127,15 @@ make install
 - Type text using the Speak button, or speak it using the Mimic button
 - Text is converted to audio in the selected voice
 - Great for hearing how text sounds in different voices
+
+### Council Mode
+
+- Multiple AI advisors discuss your question from different perspectives
+- Each council member provides their viewpoint, then reviews others' responses
+- An Advisor synthesizes all perspectives into a unified response
+- Tap "View details" on any council response to see individual member contributions
+- Configure user traits and goals in Settings for personalized advice
+- Select which council members participate per session
 
 ### Navigation
 
@@ -197,6 +216,11 @@ athena-android-client/
 | `/api/conversation/job/{id}` | GET | Poll for conversation result |
 | `/api/conversation/stream/job` | POST | Submit streaming conversation job |
 | `/api/conversation/stream/job/{id}` | GET | Poll for streaming conversation result |
+| `/api/council/job` | POST | Submit async council job |
+| `/api/council/job/{id}` | GET | Poll for council result |
+| `/api/council/stream/job` | POST | Submit streaming council job |
+| `/api/council/stream/job/{id}` | GET | Poll for streaming council result |
+| `/api/council/members` | GET | List available council members |
 | `/api/speak/job` | POST | Submit async TTS-only job |
 | `/api/speak/job/{id}` | GET | Poll for TTS result |
 | `/api/format/text` | POST | Clean up STT text (punctuation, grammar) |

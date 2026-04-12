@@ -8,13 +8,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -25,6 +28,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.athena.client.data.local.ConversationType
 import com.athena.client.ui.ConversationScreen
+import com.athena.client.ui.CouncilScreen
 import com.athena.client.ui.HomeScreen
 import com.athena.client.ui.TranscriptScreen
 import com.athena.client.ui.components.AppNavigationDrawer
@@ -38,9 +42,26 @@ fun AthenaNavHost(
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
+    
+    LaunchedEffect(drawerState) {
+        snapshotFlow { drawerState.isOpen }
+            .collect { isOpen ->
+                if (isOpen) {
+                    keyboardController?.hide()
+                }
+            }
+    }
     val conversations by appViewModel.conversations.collectAsState()
     val deleteConfirmation by appViewModel.showDeleteConfirmation.collectAsState()
     val useStreamingMode by appViewModel.useStreamingMode.collectAsState()
+    val councilUserTraits by appViewModel.councilUserTraits.collectAsState()
+    val councilUserGoal by appViewModel.councilUserGoal.collectAsState()
+    val defaultVoice by appViewModel.defaultVoice.collectAsState()
+    val defaultPersonality by appViewModel.defaultPersonality.collectAsState()
+    val defaultCouncilMembers by appViewModel.defaultCouncilMembers.collectAsState()
+    val apiKey by appViewModel.apiKey.collectAsState()
+    val serverUrls by appViewModel.serverUrls.collectAsState()
     
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -48,6 +69,9 @@ fun AthenaNavHost(
     val currentConversationId = when {
         currentRoute?.startsWith("conversation/") == true -> {
             navBackStackEntry?.arguments?.getString("conversationId")
+        }
+        currentRoute?.startsWith("council/") == true -> {
+            navBackStackEntry?.arguments?.getString("councilId")
         }
         currentRoute?.startsWith("transcript/") == true -> {
             navBackStackEntry?.arguments?.getString("transcriptId")
@@ -131,6 +155,13 @@ fun AthenaNavHost(
                         navController.navigate(NavRoutes.Conversation.createRoute(id))
                     }
                 },
+                onNewCouncil = {
+                    scope.launch {
+                        drawerState.close()
+                        val id = appViewModel.createCouncil()
+                        navController.navigate(NavRoutes.Council.createRoute(id))
+                    }
+                },
                 onNewTranscript = {
                     scope.launch {
                         drawerState.close()
@@ -147,6 +178,9 @@ fun AthenaNavHost(
                                 navController.navigate(
                                     NavRoutes.Conversation.createRoute(conversation.id)
                                 )
+                            }
+                            ConversationType.COUNCIL -> {
+                                navController.navigate(NavRoutes.Council.createRoute(conversation.id))
                             }
                             ConversationType.TRANSCRIPT -> {
                                 navController.navigate(
@@ -180,6 +214,14 @@ fun AthenaNavHost(
                             }
                         }
                     },
+                    onNewCouncil = {
+                        scope.launch {
+                            val id = appViewModel.createCouncil()
+                            navController.navigate(NavRoutes.Council.createRoute(id)) {
+                                popUpTo(NavRoutes.Home.route) { inclusive = true }
+                            }
+                        }
+                    },
                     onNewTranscript = {
                         scope.launch {
                             val id = appViewModel.createTranscript()
@@ -189,10 +231,26 @@ fun AthenaNavHost(
                         }
                     },
                     onMenuClick = {
+                        keyboardController?.hide()
                         scope.launch { drawerState.open() }
                     },
                     useStreamingMode = useStreamingMode,
-                    onStreamingModeChanged = { appViewModel.setStreamingMode(it) }
+                    onStreamingModeChanged = { appViewModel.setStreamingMode(it) },
+                    councilUserTraits = councilUserTraits,
+                    councilUserGoal = councilUserGoal,
+                    onAddTrait = { appViewModel.addCouncilUserTrait(it) },
+                    onRemoveTrait = { appViewModel.removeCouncilUserTrait(it) },
+                    onGoalChanged = { appViewModel.setCouncilUserGoal(it) },
+                    defaultVoice = defaultVoice,
+                    onDefaultVoiceChanged = { appViewModel.setDefaultVoice(it) },
+                    defaultPersonality = defaultPersonality,
+                    onDefaultPersonalityChanged = { appViewModel.setDefaultPersonality(it) },
+                    defaultCouncilMembers = defaultCouncilMembers,
+                    onDefaultCouncilMembersChanged = { appViewModel.setDefaultCouncilMembers(it) },
+                    apiKey = apiKey,
+                    onApiKeyChanged = { appViewModel.setApiKey(it) },
+                    serverUrls = serverUrls,
+                    onServerUrlsChanged = { appViewModel.setServerUrls(it) }
                 )
             }
             
@@ -206,6 +264,23 @@ fun AthenaNavHost(
                 ConversationScreen(
                     conversationId = conversationId,
                     onMenuClick = {
+                        keyboardController?.hide()
+                        scope.launch { drawerState.open() }
+                    }
+                )
+            }
+            
+            composable(
+                route = NavRoutes.Council.route,
+                arguments = listOf(
+                    navArgument("councilId") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val councilId = backStackEntry.arguments?.getString("councilId") ?: return@composable
+                CouncilScreen(
+                    councilId = councilId,
+                    onMenuClick = {
+                        keyboardController?.hide()
                         scope.launch { drawerState.open() }
                     }
                 )
@@ -221,6 +296,7 @@ fun AthenaNavHost(
                 TranscriptScreen(
                     transcriptId = transcriptId,
                     onMenuClick = {
+                        keyboardController?.hide()
                         scope.launch { drawerState.open() }
                     }
                 )

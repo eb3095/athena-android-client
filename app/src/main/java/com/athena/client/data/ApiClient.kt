@@ -2,6 +2,7 @@ package com.athena.client.data
 
 import android.util.Log
 import com.athena.client.BuildConfig
+import com.athena.client.data.local.SettingsManager
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -29,18 +31,12 @@ object ApiClient {
     private const val TAG = "ApiClient"
     private const val HEALTH_CHECK_INTERVAL_MS = 5_000L
     
+    private var settingsManager: SettingsManager? = null
+    
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
         encodeDefaults = true
-    }
-
-    private val authInterceptor = Interceptor { chain ->
-        val request = chain.request().newBuilder()
-            .addHeader("Authorization", "Bearer ${BuildConfig.AUTH_TOKEN}")
-            .addHeader("Content-Type", "application/json")
-            .build()
-        chain.proceed(request)
     }
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
@@ -51,33 +47,65 @@ object ApiClient {
         }
         redactHeader("Authorization")
     }
-
-    private val healthCheckClient = OkHttpClient.Builder()
-        .addInterceptor(authInterceptor)
+    
+    private fun getEffectiveApiKey(): String {
+        return settingsManager?.apiKey?.value?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.AUTH_TOKEN
+    }
+    
+    private fun getEffectiveServerUrls(): List<String> {
+        val fromSettings = settingsManager?.serverUrls?.value?.takeIf { it.isNotBlank() }
+        val urlString = fromSettings ?: BuildConfig.API_SERVERS
+        return urlString
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { it.trimEnd('/') + "/" }
+    }
+    
+    private fun createAuthInterceptor(): Interceptor = Interceptor { chain ->
+        val token = getEffectiveApiKey()
+        val requestBuilder = chain.request().newBuilder()
+            .addHeader("Content-Type", "application/json")
+        if (token.isNotBlank()) {
+            requestBuilder.addHeader("Authorization", "Bearer $token")
+        }
+        chain.proceed(requestBuilder.build())
+    }
+    
+    private fun buildHealthCheckClient(): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(createAuthInterceptor())
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(3, TimeUnit.SECONDS)
         .writeTimeout(3, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
-    private val apiClient = OkHttpClient.Builder()
-        .addInterceptor(authInterceptor)
+    private fun buildApiClient(): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(createAuthInterceptor())
         .addInterceptor(loggingInterceptor)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private val serverUrls: List<String> = BuildConfig.API_SERVERS
-        .split(",")
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-        .map { it.trimEnd('/') + "/" }
+    @Volatile
+    private var serverUrls: List<String> = getEffectiveServerUrls()
+    
+    @Volatile
+    private var healthCheckClient: OkHttpClient = buildHealthCheckClient()
+    
+    @Volatile
+    private var apiClient: OkHttpClient = buildApiClient()
 
-    private val serverApis: Map<String, AthenaApi> = serverUrls.associateWith { url ->
+    @Volatile
+    private var serverApis: Map<String, AthenaApi> = serverUrls.associateWith { url ->
         createApi(url, apiClient)
     }
 
-    private val healthCheckApis: Map<String, AthenaApi> = serverUrls.associateWith { url ->
+    @Volatile
+    private var healthCheckApis: Map<String, AthenaApi> = serverUrls.associateWith { url ->
         createApi(url, healthCheckClient)
     }
 
@@ -97,6 +125,37 @@ object ApiClient {
 
     private val _isConnected = MutableStateFlow(true)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+    
+    fun initialize(settings: SettingsManager) {
+        settingsManager = settings
+        rebuildClients()
+        
+        scope.launch {
+            settings.apiKey.combine(settings.serverUrls) { _, _ -> Unit }.collect {
+                Log.d(TAG, "Settings changed, rebuilding clients")
+                rebuildClients()
+            }
+        }
+    }
+    
+    private fun rebuildClients() {
+        serverUrls = getEffectiveServerUrls()
+        healthCheckClient = buildHealthCheckClient()
+        apiClient = buildApiClient()
+        
+        serverApis = serverUrls.associateWith { url ->
+            createApi(url, apiClient)
+        }
+        healthCheckApis = serverUrls.associateWith { url ->
+            createApi(url, healthCheckClient)
+        }
+        
+        _serverStatuses.value = serverUrls.map { ServerStatus(it, false) }
+        currentHealthyUrl = null
+        hasCompletedFirstCheck = false
+        
+        Log.d(TAG, "Rebuilt clients with ${serverUrls.size} servers")
+    }
 
     @Volatile
     private var currentHealthyUrl: String? = null
@@ -151,9 +210,14 @@ object ApiClient {
     private suspend fun checkServerHealth(url: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                healthCheckApis[url]?.health()
-                Log.d(TAG, "Health check passed: $url")
-                true
+                val response = healthCheckApis[url]?.health()
+                val isHealthy = response?.status == "healthy"
+                if (isHealthy) {
+                    Log.d(TAG, "Health check passed: $url")
+                } else {
+                    Log.d(TAG, "Health check failed: $url - unexpected status: ${response?.status}")
+                }
+                isHealthy
             } catch (e: Exception) {
                 Log.d(TAG, "Health check failed: $url - ${e.message}")
                 false

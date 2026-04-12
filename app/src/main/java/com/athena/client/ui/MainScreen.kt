@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -213,8 +215,16 @@ fun MainScreen(
     var nextSentenceToPlay by remember { mutableStateOf(0) }
     var isPlayingStreamingSentence by remember { mutableStateOf(false) }
     
+    LaunchedEffect(uiState.isStreamingMuted) {
+        if (uiState.isStreamingMuted && isPlayingStreamingSentence) {
+            audioPlayer.stop()
+            isPlayingStreamingSentence = false
+            viewModel.setPlayingResponse(null)
+        }
+    }
+    
     // Handle streaming audio playback
-    LaunchedEffect(uiState.responses, isPlayingStreamingSentence) {
+    LaunchedEffect(uiState.responses, isPlayingStreamingSentence, uiState.isStreamingMuted) {
         val streamingResponse = uiState.responses.find { it.isStreaming && !it.streamingComplete }
             ?: uiState.responses.find { it.id == currentStreamingResponseId }
         
@@ -224,7 +234,7 @@ fun MainScreen(
                 nextSentenceToPlay = 0
             }
             
-            if (!isPlayingStreamingSentence) {
+            if (!isPlayingStreamingSentence && !uiState.isStreamingMuted) {
                 val completedSentences = streamingResponse.sentenceAudios.filter { it.status == "completed" && it.audio != null }
                 val nextSentence = completedSentences.find { it.index == nextSentenceToPlay }
                 
@@ -292,6 +302,21 @@ fun MainScreen(
         SettingsDialog(
             useStreamingMode = uiState.useStreamingMode,
             onStreamingModeChanged = { viewModel.setStreamingMode(it) },
+            councilUserTraits = emptyList(),
+            councilUserGoal = "",
+            onAddTrait = { },
+            onRemoveTrait = { },
+            onGoalChanged = { },
+            defaultVoice = null,
+            onDefaultVoiceChanged = { },
+            defaultPersonality = null,
+            onDefaultPersonalityChanged = { },
+            defaultCouncilMembers = emptyList(),
+            onDefaultCouncilMembersChanged = { },
+            apiKey = uiState.apiKey,
+            onApiKeyChanged = { viewModel.setApiKey(it) },
+            serverUrls = uiState.serverUrls,
+            onServerUrlsChanged = { viewModel.setServerUrls(it) },
             onDismiss = { showSettingsDialog = false }
         )
     }
@@ -504,6 +529,38 @@ fun MainScreen(
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+                
+                // Streaming mute button
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = uiState.streamingResponseId != null,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(bottom = 16.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            .clickable { viewModel.toggleStreamingMute() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.isStreamingMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                            contentDescription = if (uiState.isStreamingMuted) "Unmute" else "Mute",
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (uiState.isStreamingMuted) "Audio muted" else "Tap to mute",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
                 }
