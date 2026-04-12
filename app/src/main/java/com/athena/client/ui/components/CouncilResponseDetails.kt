@@ -124,18 +124,14 @@ private fun CouncilMemberCard(member: CouncilMemberResponse) {
             )
             Spacer(modifier = Modifier.height(4.dp))
             
-            if (expanded) {
-                Markdown(
-                    content = member.initialResponse,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            } else {
-                Text(
-                    text = member.initialResponse,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 3
-                )
-            }
+            Markdown(
+                content = if (expanded) {
+                    member.initialResponse
+                } else {
+                    member.initialResponse.take(300) + if (member.initialResponse.length > 300) "..." else ""
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
             
             AnimatedVisibility(
                 visible = expanded,
